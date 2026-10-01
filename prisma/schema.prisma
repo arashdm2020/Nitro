@@ -1,0 +1,197 @@
+generator client {
+ provider = "prisma-client-js"
+}
+datasource db {
+ provider = "postgresql"
+ url = env("DATABASE_URL")
+}
+enum Role {
+ ADMIN
+ USER
+}
+enum UserStatus {
+ ACTIVE
+ SUSPENDED
+ DISABLED
+}
+enum TransactionType {
+ INTERNAL
+ ADMIN_ADJUSTMENT
+ BLOCKCHAIN
+ EXCHANGE
+}
+enum TransactionStatus {
+ PENDING
+ COMPLETED
+ FAILED
+ CANCELLED
+}
+model User {
+ id String @id @default(uuid()) @db.Uuid
+ username String @unique
+ passwordHash String
+ role Role @default(USER)
+ status UserStatus @default(ACTIVE)
+ displayName String?
+ mustResetPassword Boolean @default(false)
+ lastLoginAt DateTime?
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ sessions Session[]
+ accounts Account[]
+ wallets WalletAddress[]
+ sent Transaction[] @relation("sender")
+ received Transaction[] @relation("recipient")
+ audits AuditLog[]
+}
+model Session {
+ id String @id @default(uuid()) @db.Uuid
+ tokenHash String @unique
+ userId String @db.Uuid
+ user User @relation(fields:[userId],references:[id])
+ expiresAt DateTime
+ createdAt DateTime @default(now())
+ @@index([expiresAt])
+}
+model Asset {
+ id String @id @default(uuid()) @db.Uuid
+ symbol String @unique
+ name String
+ icon String
+ decimals Int
+ enabled Boolean @default(true)
+ displayOrder Int @default(0)
+ priceTrackingEnabled Boolean @default(true)
+ accounts Account[]
+ networks AssetNetwork[]
+ wallets WalletAddress[]
+ transactions Transaction[]
+ prices Price[]
+}
+model Network {
+ id String @id @default(uuid()) @db.Uuid
+ name String
+ slug String @unique
+ chainId Int?
+ nativeAsset String
+ explorerBaseUrl String?
+ enabled Boolean @default(true)
+ networkType String @default("VIRTUAL")
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ assets AssetNetwork[]
+ wallets WalletAddress[]
+}
+model AssetNetwork {
+ assetId String @db.Uuid
+ networkId String @db.Uuid
+ asset Asset @relation(fields:[assetId],references:[id])
+ network Network @relation(fields:[networkId],references:[id])
+ @@id([assetId,networkId])
+}
+model Account {
+ id String @id @default(uuid()) @db.Uuid
+ userId String? @db.Uuid
+ assetId String @db.Uuid
+ systemKey String? @unique
+ balance Decimal @default(0) @db.Decimal(38,18)
+ user User? @relation(fields:[userId],references:[id])
+ asset Asset @relation(fields:[assetId],references:[id])
+ entries LedgerEntry[]
+ @@unique([userId,assetId])
+}
+model LedgerEntry {
+ id String @id @default(uuid()) @db.Uuid
+ accountId String @db.Uuid
+ transactionId String @db.Uuid
+ amount Decimal @db.Decimal(38,18)
+ account Account @relation(fields:[accountId],references:[id])
+ transaction Transaction @relation(fields:[transactionId],references:[id])
+ createdAt DateTime @default(now())
+ @@unique([transactionId,accountId])
+ @@index([accountId,createdAt])
+}
+model Transaction {
+ id String @id @default(uuid()) @db.Uuid
+ reference String @unique
+ idempotencyKey String
+ requestHash String
+ actorId String @db.Uuid
+ senderId String? @db.Uuid
+ recipientId String? @db.Uuid
+ assetId String @db.Uuid
+ amount Decimal @db.Decimal(38,18)
+ fee Decimal @default(0) @db.Decimal(38,18)
+ type TransactionType
+ status TransactionStatus @default(COMPLETED)
+ reason String?
+ createdAt DateTime @default(now())
+ completedAt DateTime?
+ sender User? @relation("sender",fields:[senderId],references:[id])
+ recipient User? @relation("recipient",fields:[recipientId],references:[id])
+ asset Asset @relation(fields:[assetId],references:[id])
+ entries LedgerEntry[]
+ @@unique([actorId,idempotencyKey])
+ @@index([senderId,createdAt])
+ @@index([recipientId,createdAt])
+}
+model WalletAddress {
+ id String @id @default(uuid()) @db.Uuid
+ userId String @db.Uuid
+ assetId String @db.Uuid
+ networkId String @db.Uuid
+ address String
+ label String?
+ isPrimary Boolean @default(true)
+ status String @default("ACTIVE")
+ secretId String? @unique @db.Uuid
+ secret EncryptedSecret? @relation(fields:[secretId],references:[id])
+ user User @relation(fields:[userId],references:[id])
+ asset Asset @relation(fields:[assetId],references:[id])
+ network Network @relation(fields:[networkId],references:[id])
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@unique([userId,assetId,networkId])
+ @@unique([networkId,address])
+}
+model EncryptedSecret {
+ id String @id @default(uuid()) @db.Uuid
+ ciphertext String
+ nonce String
+ tag String
+ keyVersion String
+ wallet WalletAddress?
+ createdAt DateTime @default(now())
+}
+model Price {
+ id String @id @default(uuid()) @db.Uuid
+ assetId String @db.Uuid
+ asset Asset @relation(fields:[assetId],references:[id])
+ value Decimal @db.Decimal(38,18)
+ change24h Decimal? @db.Decimal(18,8)
+ currency String @default("USD")
+ source String
+ fetchedAt DateTime @default(now())
+ @@unique([assetId,currency])
+}
+model AuditLog {
+ id String @id @default(uuid()) @db.Uuid
+ actorId String @db.Uuid
+ actor User @relation(fields:[actorId],references:[id])
+ targetType String
+ targetId String
+ action String
+ metadata Json
+ createdAt DateTime @default(now())
+ @@index([createdAt])
+}
+model SystemSetting {
+ key String @id
+ value String
+ updatedAt DateTime @updatedAt
+}
+model RateLimit {
+ key String @id
+ count Int @default(1)
+ resetsAt DateTime
+}
