@@ -35,8 +35,9 @@ export function errorMessage(error: unknown) {
       "Enter a valid wallet address. Check the address and its checksum.",
     ADDRESS_NETWORK_MISMATCH:
       "This address is not compatible with an enabled network for the selected asset.",
-    EXTERNAL_TRANSFERS_UNAVAILABLE:
-      "External sending is not enabled. No funds have been sent or deducted.",
+    REQUEST_NOT_PENDING:
+      "This request is no longer awaiting processing. Reload to see its status.",
+    TRANSACTION_NOT_FOUND: "This request could not be found.",
     ADDRESS_AMBIGUOUS:
       "This address has multiple network assignments. Ask your administrator to resolve them.",
     ADDRESS_DISABLED: "This wallet address is disabled.",

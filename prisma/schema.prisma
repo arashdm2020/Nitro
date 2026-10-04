@@ -95,6 +95,7 @@ model Account {
  assetId String @db.Uuid
  systemKey String? @unique
  balance Decimal @default(0) @db.Decimal(38,18)
+ reservedBalance Decimal @default(0) @db.Decimal(38,18)
  user User? @relation(fields:[userId],references:[id])
  asset Asset @relation(fields:[assetId],references:[id])
  entries LedgerEntry[]
@@ -119,6 +120,9 @@ model Transaction {
  actorId String @db.Uuid
  senderId String? @db.Uuid
  recipientId String? @db.Uuid
+ recipientAddress String?
+ networkId String? @db.Uuid
+ networkName String?
  assetId String @db.Uuid
  amount Decimal @db.Decimal(38,18)
  fee Decimal @default(0) @db.Decimal(38,18)
@@ -134,6 +138,7 @@ model Transaction {
  @@unique([actorId,idempotencyKey])
  @@index([senderId,createdAt])
  @@index([recipientId,createdAt])
+ @@index([senderId,assetId,status])
 }
 model WalletAddress {
  id String @id @default(uuid()) @db.Uuid

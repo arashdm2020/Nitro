@@ -43,6 +43,10 @@ const { data: history } =
           }}
         </p>
         <span class="badge">{{ labels.uiAvailableBalance }}</span>
+        <p v-if="Number(account.reservedBalance) > 0" class="muted">
+          {{ labels.uiReserved }}: {{ units(account.reservedBalance) }}
+          {{ account.asset.symbol }}
+        </p>
       </section>
       <div class="quick-actions">
         <NuxtLink :to="`/send?asset=${account.asset.symbol}`" class="action"

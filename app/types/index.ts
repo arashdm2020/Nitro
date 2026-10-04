@@ -42,6 +42,8 @@ export interface Account {
   userId: string;
   assetId: string;
   balance: string;
+  reservedBalance: string;
+  totalBalance: string;
   asset: Asset;
   user?: { id: string; username: string };
 }
@@ -65,6 +67,9 @@ export interface Transaction {
   reference: string;
   senderId: string | null;
   recipientId: string | null;
+  recipientAddress: string | null;
+  networkId: string | null;
+  networkName: string | null;
   amount: string;
   fee: string;
   type: string;

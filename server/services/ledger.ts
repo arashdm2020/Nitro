@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { createError } from "h3";
 import { db } from "../utils/db";
 import { resolveRecipient, resolveExternalTronRecipient } from "./recipients";
+import { reserveRequest } from "./requests";
 Decimal.set({ precision: 60 });
 export type Movement = {
   actorId: string;
@@ -12,6 +13,7 @@ export type Movement = {
   idempotencyKey: string;
   recipientAddress?: string;
   recipientWalletId?: string;
+  recipientNetworkId?: string;
   userId?: string;
   operation?: "CREDIT" | "DEBIT";
   reason?: string;
@@ -69,16 +71,36 @@ export async function move(input: Movement) {
                 input.recipientAddress ?? "",
               );
           if (!adjustment && !destination) {
-            await resolveExternalTronRecipient(
+            const external = await resolveExternalTronRecipient(
               tx,
               asset.id,
               input.recipientAddress ?? "",
             );
-            // No on-chain withdrawal adapter is configured. Never debit or create
-            // a completed transaction for an address outside the internal ledger.
-            fail("EXTERNAL_TRANSFERS_UNAVAILABLE", 409);
+            if (input.recipientWalletId) fail("RECIPIENT_CHANGED", 409);
+            if (!external.network) fail("ADDRESS_AMBIGUOUS", 409);
+            if (
+              input.recipientNetworkId &&
+              input.recipientNetworkId !== external.network.id
+            )
+              fail("RECIPIENT_CHANGED", 409);
+            return reserveRequest(tx, {
+              actorId: actor.id,
+              assetId: asset.id,
+              amount: quantity.toString(),
+              idempotencyKey: input.idempotencyKey,
+              requestHash: fingerprint,
+              recipientAddress: external.address,
+              networkId: external.network.id,
+              networkName: external.network.name,
+            });
           }
           if (destination && destination.id !== input.recipientWalletId)
+            fail("RECIPIENT_CHANGED", 409);
+          if (
+            destination &&
+            input.recipientNetworkId &&
+            destination.networkId !== input.recipientNetworkId
+          )
             fail("RECIPIENT_CHANGED", 409);
           const recipient = adjustment
             ? await tx.user.findUnique({ where: { id: input.userId } })
@@ -121,7 +143,14 @@ export async function move(input: Movement) {
           // Atomic conditional debit is the overspend guard. Serializable retries handle competing writers.
           const debited = sender.userId
             ? await tx.account.updateMany({
-                where: { id: sender.id, balance: { gte: total.toString() } },
+                where: {
+                  id: sender.id,
+                  balance: {
+                    gte: total
+                      .add(sender.reservedBalance.toString())
+                      .toString(),
+                  },
+                },
                 data: { balance: { decrement: total.toString() } },
               })
             : await tx.account.updateMany({
@@ -142,6 +171,9 @@ export async function move(input: Movement) {
               assetId: asset.id,
               senderId: sender.userId,
               recipientId: receiver.userId,
+              recipientAddress: destination?.address,
+              networkId: destination?.networkId,
+              networkName: destination?.network.name,
               amount: quantity.toString(),
               fee: fee.toString(),
               type: adjustment ? "ADMIN_ADJUSTMENT" : "INTERNAL",

@@ -1,6 +1,7 @@
 import { requireUser, publicUser } from "../utils/auth";
 import { db } from "../utils/db";
 import { refreshPrices } from "../services/prices";
+import { availableAccount } from "../services/balances";
 export default defineEventHandler(async (event) => {
   const user = await requireUser(event);
   await refreshPrices();
@@ -37,8 +38,7 @@ export default defineEventHandler(async (event) => {
   return {
     user: publicUser(user),
     accounts: accounts.map((a) => ({
-      ...a,
-      balance: a.balance.toString(),
+      ...availableAccount(a),
       asset: {
         ...a.asset,
         prices: a.asset.prices.map((p) => ({

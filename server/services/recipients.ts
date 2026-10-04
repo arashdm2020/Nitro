@@ -94,7 +94,7 @@ export async function resolveExternalTronRecipient(
     });
   return {
     kind: "EXTERNAL" as const,
-    canSend: false as const,
+    canSend: networks.length === 1,
     walletId: null,
     assetId,
     address: parsed.address,

@@ -27,10 +27,18 @@ type ResolvedRecipient = {
   networks?: { id: string; name: string }[];
 };
 const recipient = ref<ResolvedRecipient | null>(null);
+watch(
+  () => [form.assetId, form.recipientAddress, form.amount],
+  () => {
+    if (!pending.value) recipient.value = null;
+  },
+  { flush: "sync" },
+);
 const account = computed(() =>
   wallet.value?.accounts.find((a) => a.assetId === form.assetId),
 );
 const fee = computed(() => {
+  if (recipient.value?.kind === "EXTERNAL") return "0";
   try {
     return new Decimal(form.amount || "0")
       .mul(wallet.value?.feeBps ?? "0")
@@ -56,7 +64,7 @@ async function review() {
     if (
       !n.gt(0) ||
       n.decimalPlaces() > (account.value?.asset.decimals ?? 0) ||
-      new Decimal(total.value).gt(account.value?.balance ?? "0")
+      n.gt(account.value?.balance ?? "0")
     )
       throw Error();
   } catch {
@@ -75,6 +83,10 @@ async function review() {
         },
       },
     );
+    if (new Decimal(total.value).gt(account.value?.balance ?? "0")) {
+      error.value = "Your available balance is insufficient.";
+      return;
+    }
     form.recipientAddress = recipient.value!.address;
     key.value = crypto.randomUUID();
     confirm.value = true;
@@ -85,8 +97,7 @@ async function review() {
   }
 }
 async function send() {
-  if (pending.value || !recipient.value?.canSend || !recipient.value.walletId)
-    return;
+  if (pending.value || !recipient.value?.canSend) return;
   pending.value = true;
   error.value = "";
   try {
@@ -94,7 +105,8 @@ async function send() {
       method: "POST",
       body: {
         ...form,
-        recipientWalletId: recipient.value.walletId,
+        recipientWalletId: recipient.value.walletId ?? undefined,
+        recipientNetworkId: recipient.value.network?.id,
         idempotencyKey: key.value,
       },
     });
@@ -158,12 +170,11 @@ async function send() {
         <small
           >{{ labels.uiAvailable }} {{ units(account?.balance ?? "0") }}
           {{ account?.asset.symbol }}</small
-        ></label
+        ><small v-if="Number(account?.reservedBalance) > 0">
+          {{ labels.uiReserved }}: {{ units(account!.reservedBalance) }}
+          {{ account?.asset.symbol }}
+        </small></label
       >
-      <div class="detail-line">
-        <span>{{ labels.uiInternalTransferFee }}</span
-        ><strong>{{ fee }} {{ account?.asset.symbol }}</strong>
-      </div>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <button class="button full" :disabled="pending">
         {{ pending ? "Checking address…" : labels.uiReviewTransfer
@@ -202,17 +213,31 @@ async function send() {
         ><strong>{{ fee }} {{ account?.asset.symbol }}</strong>
       </div>
       <div v-if="recipient?.canSend" class="detail-line">
-        <span>{{ labels.uiTotalDebit }}</span
+        <span>{{
+          recipient?.kind === "EXTERNAL"
+            ? labels.uiAmountReserved
+            : labels.uiTotalDebit
+        }}</span
         ><strong>{{ total }} {{ account?.asset.symbol }}</strong>
       </div>
-      <p v-if="recipient?.canSend" class="muted note">
+      <div
+        v-if="recipient?.kind === 'EXTERNAL' && recipient.canSend"
+        class="detail-line"
+      >
+        <span>{{ labels.uiStatus }}</span
+        ><StatusBadge status="PENDING" />
+      </div>
+      <p v-if="recipient?.kind === 'INTERNAL'" class="muted note">
         <ShieldCheck :size="16" />{{
           labels.uiCompletedInternalTransfersCannotBeReversedByTheSender
         }}
       </p>
-      <div v-else class="external-status" role="status">
+      <div
+        v-else-if="!recipient?.canSend"
+        class="external-status"
+        role="status"
+      >
         <strong>{{ labels.uiAddressVerified }}</strong>
-        <p>{{ labels.uiExternalSendingUnavailable }}</p>
         <p v-if="!recipient?.network">
           {{ labels.uiCompatibleNetworks }}
           {{ recipient?.networks?.map((network) => network.name).join(", ") }}.
@@ -227,10 +252,12 @@ async function send() {
       >
         {{
           !recipient?.canSend
-            ? labels.uiExternalSendingNotEnabled
+            ? labels.uiNetworkNotDetermined
             : pending
-              ? "Sending…"
-              : "Confirm & send"
+              ? "Submitting…"
+              : recipient?.kind === "EXTERNAL"
+                ? labels.uiConfirmRequest
+                : "Confirm & send"
         }}</button
       ><button
         class="button secondary full"

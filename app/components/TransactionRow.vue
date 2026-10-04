@@ -3,6 +3,7 @@ import { ArrowUpRight, ArrowDownLeft } from "lucide-vue-next";
 import type { Transaction } from "~/types";
 const props = defineProps<{ transaction: Transaction; userId: string }>();
 const sent = computed(() => props.transaction.senderId === props.userId);
+const labels = useLabels();
 </script>
 <template>
   <NuxtLink
@@ -13,22 +14,40 @@ const sent = computed(() => props.transaction.senderId === props.userId);
     /></span>
     <div class="grow">
       <strong
-        >{{ sent ? "Sent to" : "Received from" }}
+        >{{
+          transaction.type === "BLOCKCHAIN"
+            ? "Request to"
+            : sent
+              ? "Sent to"
+              : "Received from"
+        }}
         {{
           (sent
-            ? transaction.recipient?.username
+            ? transaction.recipientAddress
+              ? short(transaction.recipientAddress)
+              : transaction.recipient?.username
             : transaction.sender?.username) ?? "Administrator"
         }}</strong
       ><small
         >{{ date(transaction.createdAt) }} ·
-        {{ transaction.type === "INTERNAL" ? "Internal" : "Adjustment" }}</small
+        {{
+          transaction.type === "BLOCKCHAIN"
+            ? labels.uiTransferRequest
+            : transaction.type === "INTERNAL"
+              ? "Internal"
+              : "Adjustment"
+        }}</small
       >
     </div>
     <div class="right">
       <strong :class="sent ? '' : 'success'"
-        >{{ sent ? "−" : "+" }}{{ units(transaction.amount) }}
-        {{ transaction.asset.symbol }}</strong
-      ><small>{{ transaction.status.toLowerCase() }}</small>
+        >{{ transaction.type === "BLOCKCHAIN" ? "" : sent ? "−" : "+"
+        }}{{ units(transaction.amount) }} {{ transaction.asset.symbol }}</strong
+      ><small>{{
+        transaction.status === "PENDING"
+          ? labels.uiAwaitingProcessing
+          : transaction.status.toLowerCase()
+      }}</small>
     </div></NuxtLink
   >
 </template>

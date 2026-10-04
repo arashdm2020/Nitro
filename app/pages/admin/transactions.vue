@@ -33,11 +33,12 @@ const { data, error } = await useFetch<PageResult<Transaction>>(
       ><select v-model="type" :aria-label="labels.uiTransactionType">
         <option value="">All types</option>
         <option>INTERNAL</option>
+        <option value="BLOCKCHAIN">Transfer request</option>
         <option>ADMIN_ADJUSTMENT</option></select
       ><select v-model="status" :aria-label="labels.uiTransactionStatus">
         <option value="">All statuses</option>
         <option>COMPLETED</option>
-        <option>PENDING</option>
+        <option value="PENDING">{{ labels.uiAwaitingProcessing }}</option>
         <option>FAILED</option>
         <option>CANCELLED</option></select
       ><select v-model="asset" :aria-label="labels.uiAssetFilter">

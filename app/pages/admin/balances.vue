@@ -42,7 +42,8 @@ const { data } = await useFetch<PageResult<Account>>("/api/admin/balances", {
           <tr>
             <th>{{ labels.uiUser }}</th>
             <th>{{ labels.uiAsset }}</th>
-            <th>{{ labels.uiBalance }}</th>
+            <th>{{ labels.uiAvailableBalance }}</th>
+            <th>{{ labels.uiReserved }}</th>
             <th />
           </tr>
         </thead>
@@ -55,6 +56,7 @@ const { data } = await useFetch<PageResult<Account>>("/api/admin/balances", {
               </div>
             </td>
             <td class="mono">{{ units(a.balance) }}</td>
+            <td class="mono">{{ units(a.reservedBalance) }}</td>
             <td>
               <NuxtLink
                 :to="`/admin/users/${a.userId}/balances`"

@@ -15,7 +15,7 @@ const total = computed(() =>
     .reduce(
       (sum, a) =>
         a.asset.prices?.[0]
-          ? sum.add(new Decimal(a.balance).mul(a.asset.prices[0].value))
+          ? sum.add(new Decimal(a.totalBalance).mul(a.asset.prices[0].value))
           : sum,
       new Decimal(0),
     )

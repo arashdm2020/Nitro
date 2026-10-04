@@ -212,7 +212,6 @@ try {
     });
     assert.equal(assigned.status(), 200);
   }
-  await admin.close();
   const wallet = await browser.newContext({
       viewport: { width: 390, height: 844 },
       ignoreHTTPSErrors: true,
@@ -256,21 +255,77 @@ try {
     .waitFor();
   await userPage
     .getByLabel(/^Recipient address/)
-    .fill("T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb");
+    .fill("41" + "00".repeat(20));
   await userPage.getByRole("button", { name: "Review transfer" }).click();
-  await userPage.getByText("TRON address verified", { exact: true }).waitFor();
+  await userPage.getByText("Awaiting processing", { exact: true }).waitFor();
   await userPage.getByText("External wallet", { exact: true }).waitFor();
   assert.equal(
     await userPage
-      .getByRole("button", { name: "External sending not enabled" })
+      .getByRole("button", { name: "Confirm request" })
       .isDisabled(),
+    false,
+  );
+  await userPage.screenshot({
+    path: ".qa/pending-request-review-390.png",
+    fullPage: true,
+  });
+  await userPage.getByRole("button", { name: "Confirm request" }).click();
+  await userPage
+    .getByRole("heading", { name: "Awaiting processing" })
+    .waitFor();
+  const pendingReference = new URL(userPage.url()).pathname.split("/").pop()!;
+  assert.match(pendingReference, /^req_/);
+  await userPage.reload();
+  await userPage
+    .getByRole("heading", { name: "Awaiting processing" })
+    .waitFor();
+  await userPage
+    .getByText("T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb", { exact: true })
+    .waitFor();
+  assert.equal(
+    await userPage.getByText("Transfer complete", { exact: true }).count(),
+    0,
+  );
+  assert.equal(await userPage.getByText(/sandbox|\btest\b/i).count(), 0);
+  assert.equal(
+    await userPage.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
     true,
   );
   await userPage.screenshot({
-    path: ".qa/external-tron-address-390.png",
+    path: ".qa/pending-request-receipt-390.png",
     fullPage: true,
   });
-  await userPage.getByRole("button", { name: "Edit details" }).click();
+  const pendingRow = await pg.query<{
+    status: string;
+    completedAt: string | null;
+    balance: string;
+    reservedBalance: string;
+  }>(
+    'SELECT t."status", t."completedAt", a."balance", a."reservedBalance" FROM "Transaction" t JOIN "Account" a ON a."userId" = t."senderId" AND a."assetId" = t."assetId" WHERE t."reference" = $1',
+    [pendingReference],
+  );
+  assert.equal(pendingRow.rows[0]!.status, "PENDING");
+  assert.equal(pendingRow.rows[0]!.completedAt, null);
+  assert.equal(Number(pendingRow.rows[0]!.balance), 2500);
+  assert.equal(Number(pendingRow.rows[0]!.reservedBalance), 125.25);
+  await page.goto(origin + "/admin/transactions");
+  await page.getByLabel("Search transactions").fill(pendingReference);
+  await page.getByText("Awaiting processing", { exact: true }).last().waitFor();
+  await admin.close();
+  const cancellationResponse = userPage.waitForResponse((response) =>
+    response.url().endsWith(`/api/transactions/${pendingReference}/cancel`),
+  );
+  await userPage.getByRole("button", { name: "Cancel request" }).click();
+  const cancellationResult = await cancellationResponse;
+  assert.equal(
+    cancellationResult.status(),
+    200,
+    await cancellationResult.text(),
+  );
+  await userPage.getByRole("heading", { name: "Request cancelled" }).waitFor();
+  await userPage.goto(origin + "/send?asset=USDT");
   await userPage.getByLabel(/^Recipient address/).fill(bobAddress);
   await userPage.getByLabel(/^Amount/).fill("125.25");
   await userPage.getByRole("button", { name: "Review transfer" }).click();
@@ -366,7 +421,7 @@ try {
     });
   assert.deepEqual(errors, []);
   console.log(
-    "UI verified: admin provisioning, address-based transfer, automatic receive networks, recipient history, all primary routes, no browser errors, widths 375/390/430/768/1440.",
+    "UI verified: pending external request, receipt persistence, reservation, admin visibility, cancellation, internal transfer, automatic receive networks, no browser errors, widths 375/390/430/768/1440.",
   );
 } finally {
   await browser.close();

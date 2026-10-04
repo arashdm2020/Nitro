@@ -1,5 +1,6 @@
 import { requireUser, publicUser } from "../../../utils/auth";
 import { db } from "../../../utils/db";
+import { availableAccount } from "../../../services/balances";
 export default defineEventHandler(async (event) => {
   await requireUser(event, true);
   const user = await db.user.findUnique({
@@ -24,7 +25,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: "USER_NOT_FOUND" });
   return {
     ...publicUser(user),
-    accounts: user.accounts,
+    accounts: user.accounts.map(availableAccount),
     wallets: user.wallets,
     createdAt: user.createdAt,
   };

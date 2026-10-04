@@ -34,6 +34,7 @@ export default defineEventHandler(async (event) => {
       ? {
           OR: [
             { reference: { contains: search } },
+            { recipientAddress: { contains: search } },
             { sender: { username: { contains: search } } },
             { recipient: { username: { contains: search } } },
             ...(wallets.length

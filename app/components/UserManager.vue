@@ -179,6 +179,7 @@ function editWallet(w: Wallet) {
             <tr>
               <th>{{ labels.uiAsset }}</th>
               <th>{{ labels.uiAvailableBalance }}</th>
+              <th>{{ labels.uiReserved }}</th>
             </tr>
           </thead>
           <tbody>
@@ -189,6 +190,9 @@ function editWallet(w: Wallet) {
                 </div>
               </td>
               <td class="mono">{{ units(a.balance) }} {{ a.asset.symbol }}</td>
+              <td class="mono">
+                {{ units(a.reservedBalance) }} {{ a.asset.symbol }}
+              </td>
             </tr>
           </tbody>
         </table>

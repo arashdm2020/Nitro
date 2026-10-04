@@ -1,5 +1,6 @@
 import { requireUser } from "../../utils/auth";
 import { db } from "../../utils/db";
+import { availableAccount } from "../../services/balances";
 export default defineEventHandler(async (event) => {
   await requireUser(event, true);
   const q = getQuery(event),
@@ -21,5 +22,5 @@ export default defineEventHandler(async (event) => {
     }),
     db.account.count({ where }),
   ]);
-  return { items, total, page };
+  return { items: items.map(availableAccount), total, page };
 });

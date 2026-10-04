@@ -14,8 +14,7 @@ export default {
   available: "Available",
   internal: "Internal transfer",
   noActivity: "Your activity starts here",
-  noActivityHint:
-    "Completed transfers and balance adjustments will appear here.",
+  noActivityHint: "Transfer requests and balance adjustments will appear here.",
   signIn: "Welcome back",
   signInHint: "Sign in with the credentials provided by your administrator.",
   username: "Username",
@@ -244,17 +243,22 @@ export default {
   uiRecipientAddress: "Recipient address",
   uiEnterRecipientAddress: "Paste the recipient's wallet address",
   uiRecipientAddressHelp:
-    "Accepts Nitro addresses and valid TRON wallet addresses. No Nitro registration is required for an external TRON address.",
+    "Enter a valid TRON address or an assigned Nitro address.",
   uiSendAssetsEyebrow: "SEND ASSETS",
   uiSendAddressDescription:
-    "Enter a recipient address to check the network and available transfer route.",
+    "Enter the recipient address and amount to review your request.",
   uiInternalTransferFee: "Internal transfer fee",
   uiNetworkNotDetermined: "Network not determined",
   uiExternalWallet: "External wallet",
   uiAddressVerified: "TRON address verified",
-  uiExternalSendingUnavailable:
-    "External sending is not enabled yet. No transaction has been broadcast and no funds have been deducted.",
-  uiExternalSendingNotEnabled: "External sending not enabled",
+  uiAwaitingProcessing: "Awaiting processing",
+  uiConfirmRequest: "Confirm request",
+  uiCancelRequest: "Cancel request",
+  uiRequestCancelled: "Request cancelled",
+  uiTransferRequest: "Transfer request",
+  uiAmountReserved: "Amount reserved",
+  uiReserved: "Reserved",
+  uiRequestReference: "Request reference",
   uiCompatibleNetworks: "Compatible networks:",
   uiAddressDoesNotIdentifyNetwork:
     "The address alone does not identify the destination network.",

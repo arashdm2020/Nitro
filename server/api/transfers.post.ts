@@ -11,6 +11,7 @@ export default defineEventHandler(async (event) => {
       assetId: id,
       recipientAddress: walletAddress,
       recipientWalletId: id.optional(),
+      recipientNetworkId: id.optional(),
       amount,
       idempotencyKey: z.uuid(),
     }),

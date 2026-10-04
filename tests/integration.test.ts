@@ -382,7 +382,7 @@ describe.sequential(
         await db.walletAddress.delete({ where: { id: extra.id } });
       }
     });
-    it("accepts external TRON addresses for TRX and USDT without manufacturing transfers", async () => {
+    it("accepts external TRON addresses for TRX and USDT and requires available funds", async () => {
       const address = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
       const trx = await db.asset.findUniqueOrThrow({
         where: { symbol: "TRX" },
@@ -397,12 +397,12 @@ describe.sequential(
         );
         expect(result.status).toBe(200);
         expect(result.data.kind).toBe("EXTERNAL");
-        expect(result.data.canSend).toBe(false);
+        expect(result.data.canSend).toBe(true);
         expect(result.data.walletId).toBeNull();
         expect(result.data.network).toMatchObject({ name: "TRON" });
         expect(result.data).not.toHaveProperty("reference");
       }
-      // Direct callers cannot bypass the UI and debit a balance for an unsent withdrawal.
+      // Direct callers cannot reserve funds they do not have.
       const rejected = await api(
         "/api/transfers",
         "POST",
@@ -414,14 +414,12 @@ describe.sequential(
         },
         aliceCookie,
       );
-      expect(rejected.status).toBe(409);
-      expect(rejected.data.statusMessage).toBe(
-        "EXTERNAL_TRANSFERS_UNAVAILABLE",
-      );
+      expect(rejected.status).toBe(400);
+      expect(rejected.data.statusMessage).toBe("INSUFFICIENT_BALANCE");
       expect(
         (await transfer("1", randomUUID(), address, bobWalletId)).data
           .statusMessage,
-      ).toBe("EXTERNAL_TRANSFERS_UNAVAILABLE");
+      ).toBe("RECIPIENT_CHANGED");
       expect(await db.transaction.count()).toBe(before);
       expect(await balance(aliceId)).toBe("0");
       expect(await balance(bobId)).toBe("0");
@@ -698,6 +696,305 @@ describe.sequential(
         );
         expect(a.balance.equals(sum)).toBe(true);
       }
+    });
+    describe.sequential("pending external requests", () => {
+      const address = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
+      let cookie = "",
+        userId = "",
+        pendingReference = "";
+      const request = (
+        amount: string,
+        key = randomUUID(),
+        extra: object = {},
+      ) =>
+        api(
+          "/api/transfers",
+          "POST",
+          {
+            assetId,
+            amount,
+            recipientAddress: address,
+            idempotencyKey: key,
+            ...extra,
+          },
+          cookie,
+        );
+      const account = () =>
+        db.account.findUniqueOrThrow({
+          where: { userId_assetId: { userId, assetId } },
+        });
+      it("reserves once with a persistent address and network, without a completed transfer", async () => {
+        const created = await api(
+          "/api/admin/users",
+          "POST",
+          { username: "request_user", password, status: "ACTIVE" },
+          adminCookie,
+        );
+        expect(created.status).toBe(200);
+        userId = (
+          await db.user.findUniqueOrThrow({
+            where: { username: "request_user" },
+          })
+        ).id;
+        cookie = (
+          await api("/api/auth/login", "POST", {
+            username: "request_user",
+            password,
+          })
+        ).cookie;
+        expect((await adjust("100", "CREDIT", userId)).status).toBe(200);
+        const key = randomUUID();
+        const first = await request("60", key);
+        expect(first.status).toBe(200);
+        expect(first.data).toMatchObject({
+          type: "BLOCKCHAIN",
+          status: "PENDING",
+          recipientAddress: address,
+          networkName: "TRON",
+          completedAt: null,
+          recipientId: null,
+          fee: "0",
+        });
+        pendingReference = String(first.data.reference);
+        expect(pendingReference).toMatch(/^req_[0-9a-f-]{36}$/);
+        expect((await request("60", key)).data.reference).toBe(
+          pendingReference,
+        );
+        expect((await request("61", key)).data.statusMessage).toBe(
+          "IDEMPOTENCY_CONFLICT",
+        );
+        const held = await account();
+        expect(held.balance.toString()).toBe("100");
+        expect(held.reservedBalance.toString()).toBe("60");
+        expect(
+          await db.ledgerEntry.count({
+            where: { transaction: { reference: pendingReference } },
+          }),
+        ).toBe(0);
+        const wallet = await api("/api/wallet", "GET", undefined, cookie);
+        expect(
+          (wallet.data.accounts as { assetId: string }[]).find(
+            (a) => a.assetId === assetId,
+          ),
+        ).toMatchObject({
+          balance: "40",
+          reservedBalance: "60",
+          totalBalance: "100",
+        });
+      });
+      it("rejects invalid, incompatible and ambiguous destinations without reserving funds", async () => {
+        expect(
+          (
+            await request("1", randomUUID(), {
+              recipientAddress: "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwc",
+            })
+          ).data.statusMessage,
+        ).toBe("INVALID_RECIPIENT_ADDRESS");
+        expect((await request("0.0000001")).data.statusMessage).toBe(
+          "INVALID_AMOUNT",
+        );
+        const btc = await db.asset.findUniqueOrThrow({
+          where: { symbol: "BTC" },
+        });
+        expect(
+          (await request("1", randomUUID(), { assetId: btc.id })).data
+            .statusMessage,
+        ).toBe("ADDRESS_NETWORK_MISMATCH");
+        expect(
+          (
+            await request("1", randomUUID(), {
+              recipientNetworkId: randomUUID(),
+            })
+          ).data.statusMessage,
+        ).toBe("RECIPIENT_CHANGED");
+        const extra = await db.network.create({
+          data: {
+            name: "Alternate TRON",
+            slug: "alternate-tron",
+            nativeAsset: "TRX",
+            networkType: "TRON",
+            assets: { create: { assetId } },
+          },
+        });
+        try {
+          const preview = await api(
+            "/api/transfers/resolve",
+            "POST",
+            { assetId, recipientAddress: address },
+            cookie,
+          );
+          expect(preview.data.canSend).toBe(false);
+          expect((await request("1")).data.statusMessage).toBe(
+            "ADDRESS_AMBIGUOUS",
+          );
+        } finally {
+          await db.assetNetwork.delete({
+            where: { assetId_networkId: { assetId, networkId: extra.id } },
+          });
+          await db.network.delete({ where: { id: extra.id } });
+        }
+        expect((await account()).reservedBalance.toString()).toBe("60");
+      });
+      it("protects reserved funds from internal transfers and admin debits", async () => {
+        expect((await request("41")).data.statusMessage).toBe(
+          "INSUFFICIENT_BALANCE",
+        );
+        const internal = await api(
+          "/api/transfers",
+          "POST",
+          {
+            assetId,
+            amount: "41",
+            recipientAddress: bobAddress,
+            recipientWalletId: bobWalletId,
+            idempotencyKey: randomUUID(),
+          },
+          cookie,
+        );
+        expect(internal.data.statusMessage).toBe("INSUFFICIENT_BALANCE");
+        expect((await adjust("41", "DEBIT", userId)).data.statusMessage).toBe(
+          "INSUFFICIENT_BALANCE",
+        );
+        expect((await account()).balance.toString()).toBe("100");
+      });
+      it("prevents concurrent reservations from overspending", async () => {
+        const results = await Promise.all([request("30"), request("30")]);
+        expect(results.filter((result) => result.status === 200)).toHaveLength(
+          1,
+        );
+        expect((await account()).reservedBalance.toString()).toBe("90");
+      });
+      it("shows pending requests only to their owner and administrators", async () => {
+        const bobLogin = await api("/api/auth/login", "POST", {
+          username: "bob",
+          password,
+        });
+        expect(bobLogin.status).toBe(200);
+        bobCookie = bobLogin.cookie;
+        expect(
+          (
+            await api(
+              `/api/transactions/${pendingReference}`,
+              "GET",
+              undefined,
+              cookie,
+            )
+          ).data.status,
+        ).toBe("PENDING");
+        expect(
+          (
+            await api(
+              `/api/transactions/${pendingReference}`,
+              "GET",
+              undefined,
+              bobCookie,
+            )
+          ).status,
+        ).toBe(404);
+        const history = await api(
+          "/api/transactions",
+          "GET",
+          undefined,
+          cookie,
+        );
+        expect(history.data.items).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              reference: pendingReference,
+              status: "PENDING",
+            }),
+          ]),
+        );
+        const admin = await api(
+          `/api/admin/transactions?type=BLOCKCHAIN&status=PENDING&search=${address}`,
+          "GET",
+          undefined,
+          adminCookie,
+        );
+        expect(admin.data.items).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              reference: pendingReference,
+              recipientAddress: address,
+            }),
+          ]),
+        );
+        expect(
+          (
+            await api(
+              `/api/transactions/${pendingReference}/cancel`,
+              "POST",
+              {},
+              bobCookie,
+            )
+          ).status,
+        ).toBe(404);
+        expect((await account()).reservedBalance.toString()).toBe("90");
+      });
+      it("cancels idempotently and releases funds, including simultaneous cancellation", async () => {
+        const cancelled = await Promise.all([
+          api(
+            `/api/transactions/${pendingReference}/cancel`,
+            "POST",
+            {},
+            cookie,
+          ),
+          api(
+            `/api/transactions/${pendingReference}/cancel`,
+            "POST",
+            {},
+            cookie,
+          ),
+        ]);
+        for (const response of cancelled) {
+          expect(response.status).toBe(200);
+          expect(response.data.status).toBe("CANCELLED");
+          expect(response.data.completedAt).toBeNull();
+        }
+        expect((await account()).reservedBalance.toString()).toBe("30");
+        const remaining = await db.transaction.findFirstOrThrow({
+          where: { senderId: userId, status: "PENDING" },
+        });
+        expect(
+          (
+            await api(
+              `/api/transactions/${remaining.reference}/cancel`,
+              "POST",
+              {},
+              adminCookie,
+            )
+          ).status,
+        ).toBe(200);
+        const released = await account();
+        expect(released.balance.toString()).toBe("100");
+        expect(released.reservedBalance.toString()).toBe("0");
+      });
+      it("accepts the full available balance, normalizes hex, and enforces database reservations", async () => {
+        const created = await request("100", randomUUID(), {
+          recipientAddress: "41" + "00".repeat(20),
+        });
+        expect(created.status).toBe(200);
+        expect(created.data.recipientAddress).toBe(address);
+        expect((await account()).reservedBalance.toString()).toBe("100");
+        await expect(
+          db.account.update({
+            where: { userId_assetId: { userId, assetId } },
+            data: { reservedBalance: "0" },
+          }),
+        ).rejects.toThrow();
+        await db.$disconnect();
+        expect((await account()).reservedBalance.toString()).toBe("100");
+        expect(
+          (
+            await api(
+              `/api/transactions/${created.data.reference}/cancel`,
+              "POST",
+              {},
+              cookie,
+            )
+          ).status,
+        ).toBe(200);
+      });
     });
     it("forces password change after administrative reset", async () => {
       const replacement = randomBytes(20).toString("base64url");

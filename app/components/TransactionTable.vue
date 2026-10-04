@@ -25,9 +25,21 @@ defineProps<{ items: Transaction[] }>();
               short(tx.reference)
             }}</NuxtLink>
           </td>
-          <td>{{ tx.type.replaceAll("_", " ") }}</td>
+          <td>
+            {{
+              tx.type === "BLOCKCHAIN"
+                ? labels.uiTransferRequest
+                : tx.type.replaceAll("_", " ")
+            }}
+          </td>
           <td>{{ tx.sender?.username ?? "Treasury" }}</td>
-          <td>{{ tx.recipient?.username ?? "Treasury" }}</td>
+          <td :title="tx.recipientAddress ?? undefined">
+            {{
+              tx.recipientAddress
+                ? short(tx.recipientAddress)
+                : (tx.recipient?.username ?? "Treasury")
+            }}
+          </td>
           <td>{{ units(tx.amount) }} {{ tx.asset.symbol }}</td>
           <td><StatusBadge :status="tx.status" /></td>
           <td>{{ date(tx.createdAt) }}</td>
