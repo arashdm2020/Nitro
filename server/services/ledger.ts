@@ -3,7 +3,7 @@ import Decimal from "decimal.js";
 import { createHash, randomBytes } from "node:crypto";
 import { createError } from "h3";
 import { db } from "../utils/db";
-import { resolveRecipient } from "./recipients";
+import { resolveRecipient, resolveExternalTronRecipient } from "./recipients";
 Decimal.set({ precision: 60 });
 export type Movement = {
   actorId: string;
@@ -68,6 +68,16 @@ export async function move(input: Movement) {
                 asset.id,
                 input.recipientAddress ?? "",
               );
+          if (!adjustment && !destination) {
+            await resolveExternalTronRecipient(
+              tx,
+              asset.id,
+              input.recipientAddress ?? "",
+            );
+            // No on-chain withdrawal adapter is configured. Never debit or create
+            // a completed transaction for an address outside the internal ledger.
+            fail("EXTERNAL_TRANSFERS_UNAVAILABLE", 409);
+          }
           if (destination && destination.id !== input.recipientWalletId)
             fail("RECIPIENT_CHANGED", 409);
           const recipient = adjustment

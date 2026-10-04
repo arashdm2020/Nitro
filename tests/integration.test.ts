@@ -251,11 +251,11 @@ describe.sequential(
       expect(
         (await transfer("1", randomUUID(), "unknown-address")).data
           .statusMessage,
-      ).toBe("ADDRESS_NOT_FOUND");
+      ).toBe("INVALID_RECIPIENT_ADDRESS");
       expect(
         (await transfer("1", randomUUID(), bobAddress.toLowerCase())).data
           .statusMessage,
-      ).toBe("ADDRESS_NOT_FOUND");
+      ).toBe("INVALID_RECIPIENT_ADDRESS");
       expect(
         (await transfer("1", randomUUID(), bobAddress, randomUUID())).data
           .statusMessage,
@@ -272,7 +272,7 @@ describe.sequential(
             aliceCookie,
           )
         ).data.statusMessage,
-      ).toBe("ADDRESS_NOT_FOUND");
+      ).toBe("INVALID_RECIPIENT_ADDRESS");
       expect(await db.transaction.count()).toBe(before);
     });
     it("revalidates disabled addresses and networks before debiting", async () => {
@@ -380,6 +380,88 @@ describe.sequential(
           update: {},
         });
         await db.walletAddress.delete({ where: { id: extra.id } });
+      }
+    });
+    it("accepts external TRON addresses for TRX and USDT without manufacturing transfers", async () => {
+      const address = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
+      const trx = await db.asset.findUniqueOrThrow({
+        where: { symbol: "TRX" },
+      });
+      const before = await db.transaction.count();
+      for (const selectedAsset of [assetId, trx.id]) {
+        const result = await api(
+          "/api/transfers/resolve",
+          "POST",
+          { assetId: selectedAsset, recipientAddress: address },
+          aliceCookie,
+        );
+        expect(result.status).toBe(200);
+        expect(result.data.kind).toBe("EXTERNAL");
+        expect(result.data.canSend).toBe(false);
+        expect(result.data.walletId).toBeNull();
+        expect(result.data.network).toMatchObject({ name: "TRON" });
+        expect(result.data).not.toHaveProperty("reference");
+      }
+      // Direct callers cannot bypass the UI and debit a balance for an unsent withdrawal.
+      const rejected = await api(
+        "/api/transfers",
+        "POST",
+        {
+          assetId,
+          amount: "1",
+          recipientAddress: address,
+          idempotencyKey: randomUUID(),
+        },
+        aliceCookie,
+      );
+      expect(rejected.status).toBe(409);
+      expect(rejected.data.statusMessage).toBe(
+        "EXTERNAL_TRANSFERS_UNAVAILABLE",
+      );
+      expect(
+        (await transfer("1", randomUUID(), address, bobWalletId)).data
+          .statusMessage,
+      ).toBe("EXTERNAL_TRANSFERS_UNAVAILABLE");
+      expect(await db.transaction.count()).toBe(before);
+      expect(await balance(aliceId)).toBe("0");
+      expect(await balance(bobId)).toBe("0");
+      const btc = await db.asset.findUniqueOrThrow({
+        where: { symbol: "BTC" },
+      });
+      expect(
+        (
+          await api(
+            "/api/transfers/resolve",
+            "POST",
+            { assetId: btc.id, recipientAddress: address },
+            aliceCookie,
+          )
+        ).data.statusMessage,
+      ).toBe("ADDRESS_NETWORK_MISMATCH");
+    });
+    it("recognizes a registered TRON destination when entered in hexadecimal", async () => {
+      const address = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
+      await db.walletAddress.update({
+        where: { id: bobWalletId },
+        data: { address },
+      });
+      try {
+        const result = await api(
+          "/api/transfers/resolve",
+          "POST",
+          { assetId, recipientAddress: "41" + "00".repeat(20) },
+          aliceCookie,
+        );
+        expect(result.status).toBe(200);
+        expect(result.data.kind).toBe("INTERNAL");
+        expect(result.data.canSend).toBe(true);
+        expect(result.data.walletId).toBe(bobWalletId);
+        expect(result.data.address).toBe(address);
+      } finally {
+        await db.walletAddress.update({
+          where: { id: bobWalletId },
+          data: { address: bobAddress },
+        });
       }
     });
     it("rejects normal users on every administrator API", async () => {

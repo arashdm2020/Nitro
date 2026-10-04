@@ -242,9 +242,22 @@ export default {
   uiInstantTransfersToAnotherNitroAccount:
     "Instant transfers to another Nitro account.",
   uiRecipientAddress: "Recipient address",
-  uiEnterRecipientAddress: "Paste the recipient's Nitro wallet address",
+  uiEnterRecipientAddress: "Paste the recipient's wallet address",
   uiRecipientAddressHelp:
-    "The recipient and network are resolved from the address assigned by your administrator.",
+    "Accepts Nitro addresses and valid TRON wallet addresses. No Nitro registration is required for an external TRON address.",
+  uiSendAssetsEyebrow: "SEND ASSETS",
+  uiSendAddressDescription:
+    "Enter a recipient address to check the network and available transfer route.",
+  uiInternalTransferFee: "Internal transfer fee",
+  uiNetworkNotDetermined: "Network not determined",
+  uiExternalWallet: "External wallet",
+  uiAddressVerified: "TRON address verified",
+  uiExternalSendingUnavailable:
+    "External sending is not enabled yet. No transaction has been broadcast and no funds have been deducted.",
+  uiExternalSendingNotEnabled: "External sending not enabled",
+  uiCompatibleNetworks: "Compatible networks:",
+  uiAddressDoesNotIdentifyNetwork:
+    "The address alone does not identify the destination network.",
   uiAvailable: "Available:",
   uiNetworkFee: "Network fee",
   uiReviewTransfer: "Review transfer",

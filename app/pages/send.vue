@@ -19,9 +19,12 @@ const confirm = ref(false),
   error = ref(""),
   key = ref("");
 type ResolvedRecipient = {
-  walletId: string;
+  kind: "INTERNAL" | "EXTERNAL";
+  canSend: boolean;
+  walletId: string | null;
   address: string;
-  network: { id: string; name: string };
+  network: { id: string; name: string } | null;
+  networks?: { id: string; name: string }[];
 };
 const recipient = ref<ResolvedRecipient | null>(null);
 const account = computed(() =>
@@ -62,13 +65,16 @@ async function review() {
   }
   pending.value = true;
   try {
-    recipient.value = await $fetch<ResolvedRecipient>("/api/transfers/resolve", {
-      method: "POST",
-      body: {
-        assetId: form.assetId,
-        recipientAddress: form.recipientAddress.trim(),
+    recipient.value = await $fetch<ResolvedRecipient>(
+      "/api/transfers/resolve",
+      {
+        method: "POST",
+        body: {
+          assetId: form.assetId,
+          recipientAddress: form.recipientAddress.trim(),
+        },
       },
-    });
+    );
     form.recipientAddress = recipient.value!.address;
     key.value = crypto.randomUUID();
     confirm.value = true;
@@ -79,7 +85,8 @@ async function review() {
   }
 }
 async function send() {
-  if (pending.value || !recipient.value) return;
+  if (pending.value || !recipient.value?.canSend || !recipient.value.walletId)
+    return;
   pending.value = true;
   error.value = "";
   try {
@@ -106,9 +113,9 @@ async function send() {
       ><ArrowLeft :size="17" />{{ labels.uiWallet }}</NuxtLink
     >
     <div class="page-title">
-      <span class="eyebrow">{{ labels.uiINTERNALTRANSFER }}</span>
+      <span class="eyebrow">{{ labels.uiSendAssetsEyebrow }}</span>
       <h1>{{ confirm ? "Review transfer" : "Send assets" }}</h1>
-      <p class="muted">{{ labels.uiInstantTransfersToAnotherNitroAccount }}</p>
+      <p class="muted">{{ labels.uiSendAddressDescription }}</p>
     </div>
     <form v-if="!confirm" class="panel form-panel" @submit.prevent="review">
       <label
@@ -154,7 +161,7 @@ async function send() {
         ></label
       >
       <div class="detail-line">
-        <span>{{ labels.uiFee }}</span
+        <span>{{ labels.uiInternalTransferFee }}</span
         ><strong>{{ fee }} {{ account?.asset.symbol }}</strong>
       </div>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
@@ -178,28 +185,53 @@ async function send() {
       </div>
       <div class="detail-line">
         <span>{{ labels.uiNetwork }}</span
-        ><strong>{{ recipient?.network.name }}</strong>
+        ><strong>{{
+          recipient?.network?.name ?? labels.uiNetworkNotDetermined
+        }}</strong>
       </div>
       <div class="detail-line">
         <span>{{ labels.uiTransferType }}</span
-        ><strong>{{ labels.uiInternalNitro }}</strong>
+        ><strong>{{
+          recipient?.kind === "INTERNAL"
+            ? labels.uiInternalNitro
+            : labels.uiExternalWallet
+        }}</strong>
       </div>
-      <div class="detail-line">
+      <div v-if="recipient?.canSend" class="detail-line">
         <span>{{ labels.uiFee }}</span
         ><strong>{{ fee }} {{ account?.asset.symbol }}</strong>
       </div>
-      <div class="detail-line">
+      <div v-if="recipient?.canSend" class="detail-line">
         <span>{{ labels.uiTotalDebit }}</span
         ><strong>{{ total }} {{ account?.asset.symbol }}</strong>
       </div>
-      <p class="muted note">
+      <p v-if="recipient?.canSend" class="muted note">
         <ShieldCheck :size="16" />{{
           labels.uiCompletedInternalTransfersCannotBeReversedByTheSender
         }}
       </p>
+      <div v-else class="external-status" role="status">
+        <strong>{{ labels.uiAddressVerified }}</strong>
+        <p>{{ labels.uiExternalSendingUnavailable }}</p>
+        <p v-if="!recipient?.network">
+          {{ labels.uiCompatibleNetworks }}
+          {{ recipient?.networks?.map((network) => network.name).join(", ") }}.
+          {{ labels.uiAddressDoesNotIdentifyNetwork }}
+        </p>
+      </div>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
-      <button class="button full" :disabled="pending" @click="send">
-        {{ pending ? "Sending…" : "Confirm & send" }}</button
+      <button
+        class="button full"
+        :disabled="pending || !recipient?.canSend"
+        @click="send"
+      >
+        {{
+          !recipient?.canSend
+            ? labels.uiExternalSendingNotEnabled
+            : pending
+              ? "Sending…"
+              : "Confirm & send"
+        }}</button
       ><button
         class="button secondary full"
         :disabled="pending"
@@ -216,5 +248,16 @@ async function send() {
   min-width: 0;
   max-width: 78%;
   text-align: right;
+}
+.external-status {
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid var(--border, #252830);
+  border-radius: 12px;
+}
+.external-status p {
+  margin: 8px 0 0;
+  color: var(--muted, #8c95a4);
+  line-height: 1.6;
 }
 </style>

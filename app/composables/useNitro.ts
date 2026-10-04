@@ -31,6 +31,12 @@ export function errorMessage(error: unknown) {
     USER_NOT_FOUND: "The requested user account was not found.",
     ADDRESS_NOT_FOUND:
       "No Nitro wallet matches this address for the selected asset.",
+    INVALID_RECIPIENT_ADDRESS:
+      "Enter a valid wallet address. Check the address and its checksum.",
+    ADDRESS_NETWORK_MISMATCH:
+      "This address is not compatible with an enabled network for the selected asset.",
+    EXTERNAL_TRANSFERS_UNAVAILABLE:
+      "External sending is not enabled. No funds have been sent or deducted.",
     ADDRESS_AMBIGUOUS:
       "This address has multiple network assignments. Ask your administrator to resolve them.",
     ADDRESS_DISABLED: "This wallet address is disabled.",

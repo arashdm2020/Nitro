@@ -10,7 +10,7 @@ export default defineEventHandler(async (event) => {
     z.object({
       assetId: id,
       recipientAddress: walletAddress,
-      recipientWalletId: id,
+      recipientWalletId: id.optional(),
       amount,
       idempotencyKey: z.uuid(),
     }),

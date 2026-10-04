@@ -252,8 +252,25 @@ try {
   await userPage.getByRole("button", { name: "Review transfer" }).click();
   await userPage
     .getByRole("alert")
-    .filter({ hasText: "No Nitro wallet matches this address" })
+    .filter({ hasText: "Enter a valid wallet address" })
     .waitFor();
+  await userPage
+    .getByLabel(/^Recipient address/)
+    .fill("T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb");
+  await userPage.getByRole("button", { name: "Review transfer" }).click();
+  await userPage.getByText("TRON address verified", { exact: true }).waitFor();
+  await userPage.getByText("External wallet", { exact: true }).waitFor();
+  assert.equal(
+    await userPage
+      .getByRole("button", { name: "External sending not enabled" })
+      .isDisabled(),
+    true,
+  );
+  await userPage.screenshot({
+    path: ".qa/external-tron-address-390.png",
+    fullPage: true,
+  });
+  await userPage.getByRole("button", { name: "Edit details" }).click();
   await userPage.getByLabel(/^Recipient address/).fill(bobAddress);
   await userPage.getByLabel(/^Amount/).fill("125.25");
   await userPage.getByRole("button", { name: "Review transfer" }).click();
