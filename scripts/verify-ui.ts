@@ -190,6 +190,28 @@ try {
     assert.equal(new URL(page.url()).pathname, `/admin/${route}`);
     assert.equal(await page.locator("main").count(), 1);
   }
+  const bobUser = await pg.query<{ id: string }>(
+    'SELECT "id" FROM "User" WHERE "username"=$1',
+    ["bob"],
+  );
+  const assignedNetworks = await pg.query<{ id: string; slug: string }>(
+    'SELECT "id", "slug" FROM "Network" WHERE "slug" IN ($1, $2)',
+    ["tron", "ethereum"],
+  );
+  const bobAddress = "TNitroAssignedBobAddress1234567890";
+  const bobEvmAddress = "0x" + "ab".repeat(20);
+  for (const network of assignedNetworks.rows) {
+    const assigned = await page.request.put(origin + "/api/admin/wallets", {
+      headers: { origin },
+      data: {
+        userId: bobUser.rows[0]!.id,
+        assetId: asset.rows[0]!.id,
+        networkId: network.id,
+        address: network.slug === "tron" ? bobAddress : bobEvmAddress,
+      },
+    });
+    assert.equal(assigned.status(), 200);
+  }
   await admin.close();
   const wallet = await browser.newContext({
       viewport: { width: 390, height: 844 },
@@ -225,9 +247,29 @@ try {
   await userPage.setViewportSize({ width: 390, height: 844 });
   await userPage.getByRole("link", { name: "Send", exact: true }).click();
   await userPage.getByLabel(/^Asset/).selectOption(asset.rows[0]!.id);
-  await userPage.getByLabel("Recipient username").fill("bob");
+  await userPage.getByLabel(/^Recipient address/).fill("unknown-address");
   await userPage.getByLabel(/^Amount/).fill("125.25");
   await userPage.getByRole("button", { name: "Review transfer" }).click();
+  await userPage
+    .getByRole("alert")
+    .filter({ hasText: "No Nitro wallet matches this address" })
+    .waitFor();
+  await userPage.getByLabel(/^Recipient address/).fill(bobAddress);
+  await userPage.getByLabel(/^Amount/).fill("125.25");
+  await userPage.getByRole("button", { name: "Review transfer" }).click();
+  await userPage.getByText(bobAddress, { exact: true }).waitFor();
+  await userPage.getByText("TRON", { exact: true }).waitFor();
+  assert.equal(
+    await userPage.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+    true,
+    "Transfer review overflows",
+  );
+  await userPage.screenshot({
+    path: ".qa/transfer-review-390.png",
+    fullPage: true,
+  });
   await userPage.getByRole("button", { name: "Confirm & send" }).click();
   await userPage.getByRole("heading", { name: "Transfer complete" }).waitFor();
   await userPage.screenshot({ path: ".qa/transfer-390.png", fullPage: true });
@@ -264,6 +306,34 @@ try {
     .getByRole("link", { name: /Tether/ })
     .getByText("125.25 USDT")
     .waitFor();
+  await bobPage.goto(origin + "/receive?asset=USDT");
+  await bobPage.getByText(bobAddress, { exact: true }).waitFor();
+  await bobPage.getByText(bobEvmAddress, { exact: true }).waitFor();
+  await bobPage.locator(".qr-card img").nth(1).waitFor();
+  assert.equal(
+    await bobPage.locator("main select").count(),
+    1,
+    "Receive should only have an asset selector",
+  );
+  assert.equal(await bobPage.locator(".qr-card img").count(), 2);
+  assert.equal(
+    await bobPage.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+    true,
+    "Receive overflows",
+  );
+  await bobPage.screenshot({
+    path: ".qa/receive-networks-390.png",
+    fullPage: true,
+  });
+  const btc = await pg.query<{ id: string }>(
+    'SELECT "id" FROM "Asset" WHERE "symbol"=$1',
+    ["BTC"],
+  );
+  await bobPage.getByLabel(/^Asset/).selectOption(btc.rows[0]!.id);
+  await bobPage.getByText("No address assigned", { exact: true }).waitFor();
+  assert.equal(await bobPage.locator(".qr-card img").count(), 0);
   await bobPage.goto(origin + "/transactions");
   await bobPage.screenshot({ path: ".qa/bob-activity.png", fullPage: true });
   await bobPage
@@ -279,7 +349,7 @@ try {
     });
   assert.deepEqual(errors, []);
   console.log(
-    "UI verified: admin provisioning, wallet transfer, recipient history, all primary routes, no browser errors, widths 375/390/430/768/1440.",
+    "UI verified: admin provisioning, address-based transfer, automatic receive networks, recipient history, all primary routes, no browser errors, widths 375/390/430/768/1440.",
   );
 } finally {
   await browser.close();

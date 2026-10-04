@@ -3,13 +3,15 @@ import Decimal from "decimal.js";
 import { createHash, randomBytes } from "node:crypto";
 import { createError } from "h3";
 import { db } from "../utils/db";
+import { resolveRecipient } from "./recipients";
 Decimal.set({ precision: 60 });
 export type Movement = {
   actorId: string;
   assetId: string;
   amount: string;
   idempotencyKey: string;
-  recipient?: string;
+  recipientAddress?: string;
+  recipientWalletId?: string;
   userId?: string;
   operation?: "CREDIT" | "DEBIT";
   reason?: string;
@@ -58,11 +60,19 @@ export async function move(input: Movement) {
           });
           if (!asset?.enabled) return fail("ASSET_DISABLED");
           const quantity = validAmount(input.amount, asset.decimals);
+          const destination = adjustment
+            ? null
+            : await resolveRecipient(
+                tx,
+                actor.id,
+                asset.id,
+                input.recipientAddress ?? "",
+              );
+          if (destination && destination.id !== input.recipientWalletId)
+            fail("RECIPIENT_CHANGED", 409);
           const recipient = adjustment
             ? await tx.user.findUnique({ where: { id: input.userId } })
-            : await tx.user.findUnique({
-                where: { username: input.recipient },
-              });
+            : destination!.user;
           if (!recipient) return fail("USER_NOT_FOUND");
           if (!adjustment && recipient.status !== "ACTIVE")
             fail("USER_DISABLED");

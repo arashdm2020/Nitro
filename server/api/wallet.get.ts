@@ -15,7 +15,13 @@ export default defineEventHandler(async (event) => {
       orderBy: { asset: { displayOrder: "asc" } },
     }),
     db.walletAddress.findMany({
-      where: { userId: user.id, status: "ACTIVE" },
+      where: {
+        userId: user.id,
+        status: "ACTIVE",
+        asset: { enabled: true },
+        network: { enabled: true },
+      },
+      orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }, { id: "asc" }],
       select: {
         id: true,
         assetId: true,
@@ -43,7 +49,15 @@ export default defineEventHandler(async (event) => {
         })),
       },
     })),
-    wallets,
+    wallets: wallets.filter((wallet) =>
+      accounts.some(
+        (account) =>
+          account.assetId === wallet.assetId &&
+          account.asset.networks.some(
+            (mapping) => mapping.networkId === wallet.networkId,
+          ),
+      ),
+    ),
     feeBps: settings?.value ?? "0",
   };
 });

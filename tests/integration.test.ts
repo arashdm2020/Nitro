@@ -20,7 +20,10 @@ let adminCookie = "",
   aliceId = "",
   bobId = "",
   assetId = "",
-  reference = "";
+  reference = "",
+  bobWalletId = "";
+const bobAddress = "TNitroAssignedBobAddress1234567890";
+const aliceAddress = "TNitroAssignedAliceAddress12345678";
 async function api(path: string, method = "GET", body?: object, cookie = "") {
   const response = await fetch(origin + path, {
     method,
@@ -59,11 +62,22 @@ const adjust = (
     },
     adminCookie,
   );
-const transfer = (amount: string, key = randomUUID(), recipient = "bob") =>
+const transfer = (
+  amount: string,
+  key = randomUUID(),
+  recipientAddress = bobAddress,
+  recipientWalletId = bobWalletId,
+) =>
   api(
     "/api/transfers",
     "POST",
-    { assetId, amount, recipient, idempotencyKey: key },
+    {
+      assetId,
+      amount,
+      recipientAddress,
+      recipientWalletId,
+      idempotencyKey: key,
+    },
     aliceCookie,
   );
 async function balance(userId: string) {
@@ -201,6 +215,173 @@ describe.sequential(
         await db.auditLog.count({ where: { action: "USER_CREATED" } }),
       ).toBe(2);
     });
+    it("assigns addresses through the administrator and resolves their configured network", async () => {
+      const network = await db.network.findUniqueOrThrow({
+        where: { slug: "tron" },
+      });
+      for (const [userId, address] of [
+        [aliceId, aliceAddress],
+        [bobId, bobAddress],
+      ]) {
+        const result = await api(
+          "/api/admin/wallets",
+          "PUT",
+          { userId, assetId, networkId: network.id, address },
+          adminCookie,
+        );
+        expect(result.status).toBe(200);
+      }
+      const resolved = await api(
+        "/api/transfers/resolve",
+        "POST",
+        { assetId, recipientAddress: `  ${bobAddress}  ` },
+        aliceCookie,
+      );
+      expect(resolved.status).toBe(200);
+      expect(resolved.data.address).toBe(bobAddress);
+      expect(resolved.data.network).toEqual({ id: network.id, name: "TRON" });
+      expect(resolved.data).not.toHaveProperty("user");
+      bobWalletId = String(resolved.data.walletId);
+    });
+    it("rejects usernames, unknown addresses, wrong assets and changed destination IDs", async () => {
+      const before = await db.transaction.count();
+      expect(
+        (await transfer("1", randomUUID(), "bob")).data.statusMessage,
+      ).toBe("INVALID_INPUT");
+      expect(
+        (await transfer("1", randomUUID(), "unknown-address")).data
+          .statusMessage,
+      ).toBe("ADDRESS_NOT_FOUND");
+      expect(
+        (await transfer("1", randomUUID(), bobAddress.toLowerCase())).data
+          .statusMessage,
+      ).toBe("ADDRESS_NOT_FOUND");
+      expect(
+        (await transfer("1", randomUUID(), bobAddress, randomUUID())).data
+          .statusMessage,
+      ).toBe("RECIPIENT_CHANGED");
+      const btc = await db.asset.findUniqueOrThrow({
+        where: { symbol: "BTC" },
+      });
+      expect(
+        (
+          await api(
+            "/api/transfers/resolve",
+            "POST",
+            { assetId: btc.id, recipientAddress: bobAddress },
+            aliceCookie,
+          )
+        ).data.statusMessage,
+      ).toBe("ADDRESS_NOT_FOUND");
+      expect(await db.transaction.count()).toBe(before);
+    });
+    it("revalidates disabled addresses and networks before debiting", async () => {
+      const wallet = await db.walletAddress.findUniqueOrThrow({
+        where: { id: bobWalletId },
+      });
+      const before = await db.transaction.count();
+      try {
+        await db.walletAddress.update({
+          where: { id: bobWalletId },
+          data: { status: "DISABLED" },
+        });
+        expect((await transfer("1")).data.statusMessage).toBe(
+          "ADDRESS_DISABLED",
+        );
+        const hidden = await api("/api/wallet", "GET", undefined, bobCookie);
+        expect(hidden.data.wallets).toEqual([]);
+        await db.walletAddress.update({
+          where: { id: bobWalletId },
+          data: { status: "ACTIVE" },
+        });
+        await db.network.update({
+          where: { id: wallet.networkId },
+          data: { enabled: false },
+        });
+        expect((await transfer("1")).data.statusMessage).toBe(
+          "NETWORK_DISABLED",
+        );
+        expect(
+          (await api("/api/wallet", "GET", undefined, bobCookie)).data.wallets,
+        ).toEqual([]);
+      } finally {
+        await db.walletAddress.update({
+          where: { id: bobWalletId },
+          data: { status: "ACTIVE" },
+        });
+        await db.network.update({
+          where: { id: wallet.networkId },
+          data: { enabled: true },
+        });
+      }
+      expect(await db.transaction.count()).toBe(before);
+      expect(await balance(aliceId)).toBe("0");
+      expect(await balance(bobId)).toBe("0");
+    });
+    it("rejects ambiguous network mappings and resolves EVM case without changing TRON case", async () => {
+      const network = await db.network.findUniqueOrThrow({
+        where: { slug: "ethereum" },
+      });
+      const extra = await db.walletAddress.create({
+        data: {
+          userId: bobId,
+          assetId,
+          networkId: network.id,
+          address: bobAddress,
+        },
+      });
+      try {
+        expect((await transfer("1")).data.statusMessage).toBe(
+          "ADDRESS_AMBIGUOUS",
+        );
+        const evmAddress = "0x" + "aB".repeat(20);
+        await db.walletAddress.update({
+          where: { id: extra.id },
+          data: { address: evmAddress },
+        });
+        const resolved = await api(
+          "/api/transfers/resolve",
+          "POST",
+          { assetId, recipientAddress: evmAddress.toLowerCase() },
+          aliceCookie,
+        );
+        expect(resolved.status).toBe(200);
+        expect(resolved.data.address).toBe(evmAddress);
+        expect(resolved.data.network).toEqual({
+          id: network.id,
+          name: "Ethereum",
+        });
+        const received = await api("/api/wallet", "GET", undefined, bobCookie);
+        expect(
+          (received.data.wallets as Array<{ address: string }>).map(
+            (w) => w.address,
+          ),
+        ).toEqual(expect.arrayContaining([bobAddress, evmAddress]));
+        await db.assetNetwork.delete({
+          where: { assetId_networkId: { assetId, networkId: network.id } },
+        });
+        expect(
+          (
+            await api(
+              "/api/transfers/resolve",
+              "POST",
+              { assetId, recipientAddress: evmAddress },
+              aliceCookie,
+            )
+          ).data.statusMessage,
+        ).toBe("NETWORK_DISABLED");
+        expect(
+          (await api("/api/wallet", "GET", undefined, bobCookie)).data.wallets,
+        ).toHaveLength(1);
+      } finally {
+        await db.assetNetwork.upsert({
+          where: { assetId_networkId: { assetId, networkId: network.id } },
+          create: { assetId, networkId: network.id },
+          update: {},
+        });
+        await db.walletAddress.delete({ where: { id: extra.id } });
+      }
+    });
     it("rejects normal users on every administrator API", async () => {
       for (const path of [
         "/api/admin/users",
@@ -309,7 +490,7 @@ describe.sequential(
         "INSUFFICIENT_BALANCE",
       );
       expect(
-        (await transfer("1", randomUUID(), "alice")).data.statusMessage,
+        (await transfer("1", randomUUID(), aliceAddress)).data.statusMessage,
       ).toBe("INVALID_RECIPIENT");
       expect(await balance(aliceId)).toBe("75");
       expect(await balance(bobId)).toBe("25");
@@ -404,7 +585,7 @@ describe.sequential(
         await db.auditLog.count({
           where: { action: "WALLET_ADDRESS_CHANGED" },
         }),
-      ).toBe(1);
+      ).toBe(3);
     });
     it("database rejects raw balance updates and immutable ledger edits", async () => {
       await expect(

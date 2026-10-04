@@ -236,12 +236,15 @@ export default {
     ". External deposits are not processed by Nitro in this version.",
   uiNoAddressAssigned: "No address assigned",
   uiReceivingAnInternalTransfer: "Receiving an internal transfer?",
-  uiShareYourUsername: "Share your username: @",
+  uiShareYourAddress:
+    "Share the assigned address above for the asset you want to receive.",
   uiINTERNALTRANSFER: "INTERNAL TRANSFER",
   uiInstantTransfersToAnotherNitroAccount:
     "Instant transfers to another Nitro account.",
-  uiRecipientUsername: "Recipient username",
-  uiEGAlice: "e.g. alice",
+  uiRecipientAddress: "Recipient address",
+  uiEnterRecipientAddress: "Paste the recipient's Nitro wallet address",
+  uiRecipientAddressHelp:
+    "The recipient and network are resolved from the address assigned by your administrator.",
   uiAvailable: "Available:",
   uiNetworkFee: "Network fee",
   uiReviewTransfer: "Review transfer",

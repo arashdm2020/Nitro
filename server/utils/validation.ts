@@ -8,6 +8,7 @@ export const username = z
 export const password = z.string().min(12).max(128);
 export const amount = z.string().regex(/^(0|[1-9]\d{0,19})(\.\d{1,18})?$/);
 export const id = z.uuid();
+export const walletAddress = z.string().trim().min(8).max(256).regex(/^\S+$/);
 export async function body<T>(
   event: H3Event,
   schema: z.ZodType<T>,

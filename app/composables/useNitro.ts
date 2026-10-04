@@ -28,7 +28,21 @@ export function errorMessage(error: unknown) {
     INSUFFICIENT_BALANCE: "Your available balance is insufficient.",
     INVALID_CREDENTIALS: "Username or password is incorrect.",
     USER_DISABLED: "This recipient is unavailable.",
-    USER_NOT_FOUND: "No account matches this username.",
+    USER_NOT_FOUND: "The requested user account was not found.",
+    ADDRESS_NOT_FOUND:
+      "No Nitro wallet matches this address for the selected asset.",
+    ADDRESS_AMBIGUOUS:
+      "This address has multiple network assignments. Ask your administrator to resolve them.",
+    ADDRESS_DISABLED: "This wallet address is disabled.",
+    NETWORK_DISABLED: "The assigned network is unavailable for this asset.",
+    ASSET_DISABLED: "This asset is currently disabled.",
+    ACCOUNT_NOT_FOUND:
+      "An asset account is missing. Contact your administrator.",
+    RECIPIENT_CHANGED:
+      "The recipient address changed. Review the transfer again.",
+    INVALID_ORIGIN:
+      "The request origin could not be verified. Reload the app and try again.",
+    UNAUTHORIZED: "Your session has expired. Sign in again.",
     INVALID_RECIPIENT: "Choose a recipient other than yourself.",
     INVALID_AMOUNT: "Enter a positive amount within the asset precision.",
     INVALID_INPUT: "Please check the form fields.",

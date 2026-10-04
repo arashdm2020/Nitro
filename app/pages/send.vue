@@ -11,13 +11,19 @@ const form = reactive({
       ?.assetId ??
     wallet.value?.accounts.find((a) => a.asset.enabled)?.assetId ??
     "",
-  recipient: "",
+  recipientAddress: "",
   amount: "",
 });
 const confirm = ref(false),
   pending = ref(false),
   error = ref(""),
   key = ref("");
+type ResolvedRecipient = {
+  walletId: string;
+  address: string;
+  network: { id: string; name: string };
+};
+const recipient = ref<ResolvedRecipient | null>(null);
 const account = computed(() =>
   wallet.value?.accounts.find((a) => a.assetId === form.assetId),
 );
@@ -39,7 +45,8 @@ const total = computed(() => {
     return "0";
   }
 });
-function review() {
+async function review() {
+  if (pending.value) return;
   error.value = "";
   try {
     const n = new Decimal(form.amount);
@@ -49,19 +56,40 @@ function review() {
       new Decimal(total.value).gt(account.value?.balance ?? "0")
     )
       throw Error();
-    key.value = crypto.randomUUID();
-    confirm.value = true;
   } catch {
     error.value = "Enter a valid amount within your available balance.";
+    return;
+  }
+  pending.value = true;
+  try {
+    recipient.value = await $fetch<ResolvedRecipient>("/api/transfers/resolve", {
+      method: "POST",
+      body: {
+        assetId: form.assetId,
+        recipientAddress: form.recipientAddress.trim(),
+      },
+    });
+    form.recipientAddress = recipient.value!.address;
+    key.value = crypto.randomUUID();
+    confirm.value = true;
+  } catch (e) {
+    error.value = errorMessage(e);
+  } finally {
+    pending.value = false;
   }
 }
 async function send() {
+  if (pending.value || !recipient.value) return;
   pending.value = true;
   error.value = "";
   try {
     const result = await $fetch<{ reference: string }>("/api/transfers", {
       method: "POST",
-      body: { ...form, idempotencyKey: key.value },
+      body: {
+        ...form,
+        recipientWalletId: recipient.value.walletId,
+        idempotencyKey: key.value,
+      },
     });
     await refresh();
     await navigateTo(`/transactions/${result.reference}`);
@@ -85,7 +113,7 @@ async function send() {
     <form v-if="!confirm" class="panel form-panel" @submit.prevent="review">
       <label
         >{{ labels.uiAsset
-        }}<select v-model="form.assetId">
+        }}<select v-model="form.assetId" :disabled="pending">
           <option
             v-for="a in wallet?.accounts.filter((a) => a.asset.enabled)"
             :key="a.id"
@@ -95,18 +123,26 @@ async function send() {
           </option>
         </select></label
       ><label
-        >{{ labels.uiRecipientUsername
+        >{{ labels.uiRecipientAddress
         }}<input
-          v-model="form.recipient"
+          v-model="form.recipientAddress"
+          :disabled="pending"
+          type="text"
           required
-          pattern="[a-z0-9][a-z0-9_.-]{2,31}"
-          :placeholder="labels.uiEGAlice"
-          autocapitalize="none" ></label
+          minlength="8"
+          maxlength="256"
+          :placeholder="labels.uiEnterRecipientAddress"
+          autocomplete="off"
+          :spellcheck="false"
+          autocapitalize="none"
+          dir="ltr"
+        ><small>{{ labels.uiRecipientAddressHelp }}</small></label
       ><label
         >{{ labels.uiAmount }}
         <div class="amount-input">
           <input
             v-model="form.amount"
+            :disabled="pending"
             required
             inputmode="decimal"
             placeholder="0.00"
@@ -118,12 +154,13 @@ async function send() {
         ></label
       >
       <div class="detail-line">
-        <span>{{ labels.uiNetworkFee }}</span
+        <span>{{ labels.uiFee }}</span
         ><strong>{{ fee }} {{ account?.asset.symbol }}</strong>
       </div>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
-      <button class="button full">
-        {{ labels.uiReviewTransfer }}<ArrowUpRight :size="18" />
+      <button class="button full" :disabled="pending">
+        {{ pending ? "Checking address…" : labels.uiReviewTransfer
+        }}<ArrowUpRight :size="18" />
       </button>
     </form>
     <section v-else class="panel form-panel">
@@ -135,7 +172,13 @@ async function send() {
       </div>
       <div class="detail-line">
         <span>{{ labels.uiTo }}</span
-        ><strong>@{{ form.recipient }}</strong>
+        ><strong class="mono recipient-address" dir="ltr">{{
+          recipient?.address
+        }}</strong>
+      </div>
+      <div class="detail-line">
+        <span>{{ labels.uiNetwork }}</span
+        ><strong>{{ recipient?.network.name }}</strong>
       </div>
       <div class="detail-line">
         <span>{{ labels.uiTransferType }}</span
@@ -167,3 +210,11 @@ async function send() {
     </section>
   </div>
 </template>
+<style scoped>
+.recipient-address {
+  overflow-wrap: anywhere;
+  min-width: 0;
+  max-width: 78%;
+  text-align: right;
+}
+</style>

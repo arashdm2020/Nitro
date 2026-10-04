@@ -8,32 +8,41 @@ const { data: wallet } = await useWallet(),
 const assetId = ref(
   wallet.value?.accounts.find((a) => a.asset.symbol === route.query.asset)
     ?.assetId ??
-    wallet.value?.accounts[0]?.assetId ??
+    wallet.value?.accounts.find((a) => a.asset.enabled)?.assetId ??
     "",
 );
-const networkId = ref(""),
-  qr = ref("");
+const qr = ref<Record<string, string>>({});
 const wallets = computed(
   () =>
     wallet.value?.wallets.filter(
       (w) => w.assetId === assetId.value && w.network.enabled,
     ) ?? [],
 );
-const selected = computed(
-  () =>
-    wallets.value.find((w) => w.networkId === networkId.value) ??
-    wallets.value[0],
-);
 watch(
-  selected,
-  async (value) => {
-    qr.value = value
-      ? await QRCode.toDataURL(value.address, {
-          width: 256,
-          margin: 2,
-          color: { dark: "#07090D", light: "#ffffff" },
-        })
-      : "";
+  wallets,
+  async (values, _previous, onCleanup) => {
+    let current = true;
+    onCleanup(() => {
+      current = false;
+    });
+    qr.value = {};
+    const entries = await Promise.all(
+      values.map(async (value) => {
+        try {
+          return [
+            value.id,
+            await QRCode.toDataURL(value.address, {
+              width: 256,
+              margin: 2,
+              color: { dark: "#07090D", light: "#ffffff" },
+            }),
+          ] as const;
+        } catch {
+          return [value.id, ""] as const;
+        }
+      }),
+    );
+    if (current) qr.value = Object.fromEntries(entries);
   },
   { immediate: true },
 );
@@ -60,48 +69,59 @@ watch(
             {{ a.asset.name }} · {{ a.asset.symbol }}
           </option>
         </select></label
-      ><template v-if="selected"
-        ><label
-          >{{ labels.uiNetwork
-          }}<select v-model="networkId">
-            <option v-for="a in wallets" :key="a.id" :value="a.networkId">
-              {{ a.network.name }}
-            </option>
-          </select></label
-        >
+      >
+      <section
+        v-for="assigned in wallets"
+        :key="assigned.id"
+        class="assigned-wallet"
+      >
+        <div class="detail-line">
+          <span>{{ labels.uiNetwork }}</span>
+          <strong>{{ assigned.network.name }}</strong>
+        </div>
+        <p class="muted note">
+          Network set by your administrator for this address.
+        </p>
         <div class="qr-card">
           <img
-            v-if="qr"
-            :src="qr"
+            v-if="qr[assigned.id]"
+            :src="qr[assigned.id]"
             :alt="labels.uiAssignedWalletAddressQRCode"
           >
         </div>
         <div class="address-box">
-          <span class="mono">{{ selected.address }}</span
-          ><CopyButton :value="selected.address" />
+          <span class="mono" dir="ltr">{{ assigned.address }}</span
+          ><CopyButton :value="assigned.address" />
         </div>
         <p class="note muted">
           <Info :size="18" />{{
             labels.uiThisIsAnAdministratorManagedDisplayAddressOn
           }}
-          {{ selected.network.name
+          {{ assigned.network.name
           }}{{ labels.uiExternalDepositsAreNotProcessedByNitroInThisVersion }}
-        </p></template
-      ><EmptyState
-        v-else
+        </p>
+      </section>
+      <EmptyState
+        v-if="!wallets.length"
         :title="labels.uiNoAddressAssigned"
         description="Ask your administrator to assign an address for this asset."
       />
     </div>
-    <div class="info-strip">
+    <div v-if="wallets.length" class="info-strip">
       <Info :size="18" />
       <div>
         <strong>{{ labels.uiReceivingAnInternalTransfer }}</strong>
         <p>
-          {{ labels.uiShareYourUsername }}{{ wallet?.user.username }}
-          <CopyButton :value="wallet?.user.username ?? ''" />
+          {{ labels.uiShareYourAddress }}
         </p>
       </div>
     </div>
   </div>
 </template>
+<style scoped>
+.assigned-wallet + .assigned-wallet {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border, #252830);
+}
+</style>

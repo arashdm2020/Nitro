@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireUser, rateLimit } from "../utils/auth";
-import { body, amount, id, username } from "../utils/validation";
+import { body, amount, id, walletAddress } from "../utils/validation";
 import { move } from "../services/ledger";
 export default defineEventHandler(async (event) => {
   const actor = await requireUser(event);
@@ -9,7 +9,8 @@ export default defineEventHandler(async (event) => {
     event,
     z.object({
       assetId: id,
-      recipient: username,
+      recipientAddress: walletAddress,
+      recipientWalletId: id,
       amount,
       idempotencyKey: z.uuid(),
     }),
