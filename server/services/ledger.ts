@@ -3,8 +3,8 @@ import Decimal from "decimal.js";
 import { createHash, randomBytes } from "node:crypto";
 import { createError } from "h3";
 import { db } from "../utils/db";
-import { resolveRecipient, resolveExternalTronRecipient } from "./recipients";
-import { reserveRequest } from "./requests";
+import { resolveRecipient, resolveExternalRecipient } from "./recipients";
+import { externalTransferProvider } from "./external-transfers";
 Decimal.set({ precision: 60 });
 export type Movement = {
   actorId: string;
@@ -71,19 +71,15 @@ export async function move(input: Movement) {
                 input.recipientAddress ?? "",
               );
           if (!adjustment && !destination) {
-            const external = await resolveExternalTronRecipient(
+            const external = await resolveExternalRecipient(
               tx,
               asset.id,
               input.recipientAddress ?? "",
+              input.recipientNetworkId,
             );
             if (input.recipientWalletId) fail("RECIPIENT_CHANGED", 409);
             if (!external.network) fail("ADDRESS_AMBIGUOUS", 409);
-            if (
-              input.recipientNetworkId &&
-              input.recipientNetworkId !== external.network.id
-            )
-              fail("RECIPIENT_CHANGED", 409);
-            return reserveRequest(tx, {
+            return externalTransferProvider.submit(tx, {
               actorId: actor.id,
               assetId: asset.id,
               amount: quantity.toString(),

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import Decimal from "decimal.js";
 import { ArrowLeft, ArrowUpRight, ShieldCheck } from "lucide-vue-next";
+const TransferDecimal = Decimal.clone({ precision: 60 });
 
 const labels = useLabels();
-const { data: wallet, refresh } = await useWallet(),
+const { data: wallet, error: walletError, refresh } = await useWallet(),
   route = useRoute();
 const form = reactive({
   assetId:
@@ -13,6 +14,7 @@ const form = reactive({
     "",
   recipientAddress: "",
   amount: "",
+  recipientNetworkId: "",
 });
 const confirm = ref(false),
   pending = ref(false),
@@ -28,11 +30,22 @@ type ResolvedRecipient = {
 };
 const recipient = ref<ResolvedRecipient | null>(null);
 watch(
-  () => [form.assetId, form.recipientAddress, form.amount],
+  () => [
+    form.assetId,
+    form.recipientAddress,
+    form.amount,
+    form.recipientNetworkId,
+  ],
   () => {
     if (!pending.value) recipient.value = null;
   },
   { flush: "sync" },
+);
+watch(
+  () => form.assetId,
+  () => {
+    form.recipientNetworkId = "";
+  },
 );
 const account = computed(() =>
   wallet.value?.accounts.find((a) => a.assetId === form.assetId),
@@ -40,7 +53,7 @@ const account = computed(() =>
 const fee = computed(() => {
   if (recipient.value?.kind === "EXTERNAL") return "0";
   try {
-    return new Decimal(form.amount || "0")
+    return new TransferDecimal(form.amount || "0")
       .mul(wallet.value?.feeBps ?? "0")
       .div(10000)
       .toDecimalPlaces(account.value?.asset.decimals ?? 18, Decimal.ROUND_UP)
@@ -51,7 +64,7 @@ const fee = computed(() => {
 });
 const total = computed(() => {
   try {
-    return new Decimal(form.amount || "0").add(fee.value).toString();
+    return new TransferDecimal(form.amount || "0").add(fee.value).toString();
   } catch {
     return "0";
   }
@@ -59,16 +72,30 @@ const total = computed(() => {
 async function review() {
   if (pending.value) return;
   error.value = "";
+  pending.value = true;
   try {
-    const n = new Decimal(form.amount);
+    await refresh();
+    if (walletError.value || !wallet.value) {
+      error.value = errorMessage(walletError.value);
+      pending.value = false;
+      return;
+    }
+    const n = new TransferDecimal(form.amount);
     if (
+      !/^(0|[1-9]\d{0,19})(\.\d{1,18})?$/.test(form.amount) ||
+      !n.isFinite() ||
       !n.gt(0) ||
-      n.decimalPlaces() > (account.value?.asset.decimals ?? 0) ||
-      n.gt(account.value?.balance ?? "0")
+      n.decimalPlaces() > (account.value?.asset.decimals ?? 0)
     )
       throw Error();
+    if (n.gt(account.value?.balance ?? "0")) {
+      error.value = "Your available balance is insufficient.";
+      pending.value = false;
+      return;
+    }
   } catch {
-    error.value = "Enter a valid amount within your available balance.";
+    error.value = "Enter a positive amount within the asset precision.";
+    pending.value = false;
     return;
   }
   pending.value = true;
@@ -80,10 +107,11 @@ async function review() {
         body: {
           assetId: form.assetId,
           recipientAddress: form.recipientAddress.trim(),
+          recipientNetworkId: form.recipientNetworkId || undefined,
         },
       },
     );
-    if (new Decimal(total.value).gt(account.value?.balance ?? "0")) {
+    if (new TransferDecimal(total.value).gt(account.value?.balance ?? "0")) {
       error.value = "Your available balance is insufficient.";
       return;
     }
@@ -141,6 +169,20 @@ async function send() {
             {{ a.asset.name }} · {{ a.asset.symbol }}
           </option>
         </select></label
+      ><label>
+        {{ labels.uiNetwork }}
+        <select v-model="form.recipientNetworkId" :disabled="pending">
+          <option value="">Automatic (when unambiguous)</option>
+          <option
+            v-for="mapping in account?.asset.networks?.filter(
+              (m) => m.network?.enabled,
+            )"
+            :key="mapping.networkId"
+            :value="mapping.networkId"
+          >
+            {{ mapping.network?.name }}
+          </option>
+        </select> </label
       ><label
         >{{ labels.uiRecipientAddress
         }}<input
@@ -232,6 +274,10 @@ async function send() {
           labels.uiCompletedInternalTransfersCannotBeReversedByTheSender
         }}
       </p>
+      <p v-else-if="recipient?.canSend" class="muted note" role="status">
+        Demo request: funds will be reserved for this asset. No blockchain
+        transfer will be sent.
+      </p>
       <div
         v-else-if="!recipient?.canSend"
         class="external-status"
@@ -242,6 +288,7 @@ async function send() {
           {{ labels.uiCompatibleNetworks }}
           {{ recipient?.networks?.map((network) => network.name).join(", ") }}.
           {{ labels.uiAddressDoesNotIdentifyNetwork }}
+          Edit details and select the destination network.
         </p>
       </div>
       <p v-if="error" class="error" role="alert">{{ error }}</p>

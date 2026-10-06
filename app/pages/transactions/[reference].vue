@@ -59,6 +59,10 @@ async function cancel() {
               : "Administrator balance adjustment"
           }}
         </p>
+        <p v-else-if="data.status === 'PENDING'" class="muted">
+          Demo request accepted. Funds are reserved; no blockchain transfer has
+          been sent.
+        </p>
         <h2>{{ units(data.amount) }} {{ data.asset.symbol }}</h2>
       </div>
       <section class="panel form-panel">

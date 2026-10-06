@@ -39,7 +39,7 @@ export function errorMessage(error: unknown) {
       "This request is no longer awaiting processing. Reload to see its status.",
     TRANSACTION_NOT_FOUND: "This request could not be found.",
     ADDRESS_AMBIGUOUS:
-      "This address has multiple network assignments. Ask your administrator to resolve them.",
+      "This address matches multiple networks. Select the destination network and review again.",
     ADDRESS_DISABLED: "This wallet address is disabled.",
     NETWORK_DISABLED: "The assigned network is unavailable for this asset.",
     ASSET_DISABLED: "This asset is currently disabled.",

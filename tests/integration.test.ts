@@ -806,7 +806,7 @@ describe.sequential(
               recipientNetworkId: randomUUID(),
             })
           ).data.statusMessage,
-        ).toBe("RECIPIENT_CHANGED");
+        ).toBe("ADDRESS_NETWORK_MISMATCH");
         const extra = await db.network.create({
           data: {
             name: "Alternate TRON",
@@ -827,6 +827,20 @@ describe.sequential(
           expect((await request("1")).data.statusMessage).toBe(
             "ADDRESS_AMBIGUOUS",
           );
+          const selected = await api(
+            "/api/transfers/resolve",
+            "POST",
+            {
+              assetId,
+              recipientAddress: address,
+              recipientNetworkId: extra.id,
+            },
+            cookie,
+          );
+          expect(selected.data).toMatchObject({
+            canSend: true,
+            network: { id: extra.id },
+          });
         } finally {
           await db.assetNetwork.delete({
             where: { assetId_networkId: { assetId, networkId: extra.id } },
@@ -995,6 +1009,151 @@ describe.sequential(
           ).status,
         ).toBe(200);
       });
+    });
+    it("enforces the 28 TRX boundary independently of USDT and destination network", async () => {
+      expect(
+        (
+          await api(
+            "/api/admin/users",
+            "POST",
+            {
+              username: "main_demo",
+              password,
+              status: "ACTIVE",
+            },
+            adminCookie,
+          )
+        ).status,
+      ).toBe(200);
+      const boundaryUser = await db.user.findUniqueOrThrow({
+        where: { username: "main_demo" },
+      });
+      const boundaryCookie = (
+        await api("/api/auth/login", "POST", {
+          username: "main_demo",
+          password,
+        })
+      ).cookie;
+      const trx = await db.asset.findUniqueOrThrow({
+        where: { symbol: "TRX" },
+      });
+      const tron = await db.network.findUniqueOrThrow({
+        where: { slug: "tron" },
+      });
+      const ethereum = await db.network.findUniqueOrThrow({
+        where: { slug: "ethereum" },
+      });
+      expect(
+        (
+          await api(
+            "/api/admin/adjustments",
+            "POST",
+            {
+              assetId: trx.id,
+              userId: boundaryUser.id,
+              amount: "28",
+              operation: "CREDIT",
+              reason: "28 TRX boundary regression",
+              idempotencyKey: randomUUID(),
+            },
+            adminCookie,
+          )
+        ).status,
+      ).toBe(200);
+      const external = (amount: string, extra: object = {}) =>
+        api(
+          "/api/transfers",
+          "POST",
+          {
+            assetId: trx.id,
+            amount,
+            recipientAddress: "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb",
+            recipientNetworkId: tron.id,
+            idempotencyKey: randomUUID(),
+            ...extra,
+          },
+          boundaryCookie,
+        );
+      const before = await db.transaction.count();
+      for (const amount of ["28.000001", "29", "99999999999999999999"])
+        expect((await external(amount)).data.statusMessage).toBe(
+          "INSUFFICIENT_BALANCE",
+        );
+      expect((await external("0.0000001")).data.statusMessage).toBe(
+        "INVALID_AMOUNT",
+      );
+      expect(
+        (await external("1", { recipientNetworkId: ethereum.id })).data
+          .statusMessage,
+      ).toBe("ADDRESS_NETWORK_MISMATCH");
+      expect(await db.transaction.count()).toBe(before);
+      expect((await adjust("100", "CREDIT", boundaryUser.id)).status).toBe(200);
+      const usdtAccount = () =>
+        db.account.findUniqueOrThrow({
+          where: { userId_assetId: { userId: boundaryUser.id, assetId } },
+        });
+      const usdtBefore = (await usdtAccount()).balance.toString();
+      const accepted = await external("28");
+      expect(accepted.status).toBe(200);
+      expect(accepted.data).toMatchObject({
+        status: "PENDING",
+        amount: "28",
+        networkId: tron.id,
+      });
+      expect((await external("0.000001")).data.statusMessage).toBe(
+        "INSUFFICIENT_BALANCE",
+      );
+      expect((await usdtAccount()).balance.toString()).toBe(usdtBefore);
+      expect(
+        (
+          await api(
+            `/api/transactions/${accepted.data.reference}/cancel`,
+            "POST",
+            {},
+            boundaryCookie,
+          )
+        ).status,
+      ).toBe(200);
+      const fractional = await external("27.999999");
+      expect(fractional.status).toBe(200);
+      expect((await external("0.000001")).status).toBe(200);
+      expect((await external("0.000001")).data.statusMessage).toBe(
+        "INSUFFICIENT_BALANCE",
+      );
+      const evmAddress = "0x" + "12".repeat(20);
+      const ambiguous = await api(
+        "/api/transfers/resolve",
+        "POST",
+        { assetId, recipientAddress: evmAddress },
+        boundaryCookie,
+      );
+      expect(ambiguous.data).toMatchObject({ canSend: false, network: null });
+      const evm = await external("1", {
+        assetId,
+        recipientAddress: evmAddress,
+        recipientNetworkId: ethereum.id,
+      });
+      expect(evm.status).toBe(200);
+      expect(evm.data).toMatchObject({
+        status: "PENDING",
+        networkId: ethereum.id,
+      });
+      expect((await usdtAccount()).reservedBalance.toString()).toBe("1");
+      const btc = await db.asset.findUniqueOrThrow({
+        where: { symbol: "BTC" },
+      });
+      const bitcoin = await db.network.findUniqueOrThrow({
+        where: { slug: "bitcoin" },
+      });
+      expect(
+        (
+          await external("1", {
+            assetId: btc.id,
+            recipientAddress: "1BoatSLRHtKNngkdXEeobR76b53LETtpyT",
+            recipientNetworkId: bitcoin.id,
+          })
+        ).data.statusMessage,
+      ).toBe("INSUFFICIENT_BALANCE");
     });
     it("forces password change after administrative reset", async () => {
       const replacement = randomBytes(20).toString("base64url");

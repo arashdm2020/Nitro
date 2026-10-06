@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { createError } from "h3";
 import { parseTronAddress } from "./tron-address";
+import { parseNetworkAddress } from "./network-address";
 
 // Use the administrator's asset/address/network mapping, never an address-prefix
 // guess. Only EVM hex addresses are case-insensitive; TRON and virtual IDs are not.
@@ -67,10 +68,11 @@ export async function resolveRecipient(
   return wallet;
 }
 
-export async function resolveExternalTronRecipient(
+export async function resolveExternalRecipient(
   tx: Prisma.TransactionClient,
   assetId: string,
   address: string,
+  networkId?: string,
 ) {
   const asset = await tx.asset.findUnique({
     where: { id: assetId },
@@ -78,30 +80,46 @@ export async function resolveExternalTronRecipient(
   });
   if (!asset?.enabled)
     throw createError({ statusCode: 400, statusMessage: "ASSET_DISABLED" });
-  const parsed = parseTronAddress(address);
-  if (!parsed)
+  const supported = asset.networks
+    .map((mapping) => mapping.network)
+    .filter((network) => network.enabled);
+  const networks = supported.filter((network) =>
+    parseNetworkAddress(address, network.networkType),
+  );
+  if (
+    !networks.length &&
+    !["TRON", "EVM", "BITCOIN"].some((type) =>
+      parseNetworkAddress(address, type),
+    )
+  )
     throw createError({
       statusCode: 400,
       statusMessage: "INVALID_RECIPIENT_ADDRESS",
     });
-  const networks = asset.networks
-    .map((mapping) => mapping.network)
-    .filter((network) => network.enabled && network.networkType === "TRON");
   if (!networks.length)
+    throw createError({
+      statusCode: 400,
+      statusMessage: "ADDRESS_NETWORK_MISMATCH",
+    });
+  const selected = networkId
+    ? networks.find((network) => network.id === networkId)
+    : networks.length === 1
+      ? networks[0]
+      : undefined;
+  if (networkId && !selected)
     throw createError({
       statusCode: 400,
       statusMessage: "ADDRESS_NETWORK_MISMATCH",
     });
   return {
     kind: "EXTERNAL" as const,
-    canSend: networks.length === 1,
+    canSend: !!selected,
     walletId: null,
     assetId,
-    address: parsed.address,
-    network:
-      networks.length === 1
-        ? { id: networks[0]!.id, name: networks[0]!.name }
-        : null,
+    address: selected
+      ? parseNetworkAddress(address, selected.networkType)!
+      : address.trim(),
+    network: selected ? { id: selected.id, name: selected.name } : null,
     networks: networks.map((network) => ({
       id: network.id,
       name: network.name,
