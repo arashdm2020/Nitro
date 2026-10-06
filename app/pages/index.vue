@@ -7,9 +7,15 @@ import {
   EyeOff,
 } from "lucide-vue-next";
 import Decimal from "decimal.js";
+import { sortWalletAccounts } from "~/composables/useNitro";
 const { data: wallet, status, error, refresh } = await useWallet(),
   labels = useLabels(),
   hidden = ref(false);
+const accounts = computed(() =>
+  sortWalletAccounts(
+    wallet.value?.accounts.filter((a) => a.asset.enabled) ?? [],
+  ),
+);
 const total = computed(() =>
   wallet.value?.accounts
     .reduce(
@@ -33,7 +39,7 @@ const stale = computed(() =>
 </script>
 <template>
   <div>
-    <section v-if="error" class="empty">
+    <section v-if="error && !wallet" class="empty">
       <h2>{{ labels.uiUnableToLoadYourWallet }}</h2>
       <button class="button" @click="refresh()">{{ labels.uiTryAgain }}</button>
     </section>
@@ -56,7 +62,7 @@ const stale = computed(() =>
             <EyeOff v-if="hidden" :size="17" /><Eye v-else :size="17" />
           </button>
         </div>
-        <h1 :class="{ skeleton: status === 'pending' }">
+        <h1 :class="{ skeleton: status === 'pending' && !wallet }">
           {{
             hidden
               ? "••••••"
@@ -78,7 +84,9 @@ const stale = computed(() =>
                   ? "Partial valuation · prices unavailable"
                   : stale
                     ? "Last known prices · stale"
-                    : "Portfolio valuation"
+                    : error
+                      ? "Update failed · retrying"
+                      : "Auto-updating · balances 15s · prices 60s"
             }}</span
           ></span
         >
@@ -100,7 +108,7 @@ const stale = computed(() =>
       </div>
       <div class="asset-list">
         <NuxtLink
-          v-for="account in wallet?.accounts.filter((a) => a.asset.enabled)"
+          v-for="account in accounts"
           :key="account.id"
           :to="`/assets/${account.asset.symbol}`"
           class="asset-row"

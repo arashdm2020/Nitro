@@ -1,7 +1,51 @@
 import Decimal from "decimal.js";
-import type { WalletData } from "~/types";
-export const useWallet = () =>
-  useFetch<WalletData>("/api/wallet", { key: "wallet" });
+import type { Account, WalletData } from "~/types";
+export const useWallet = () => {
+  const wallet = useFetch<WalletData>("/api/wallet", { key: "wallet" });
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const refreshVisible = async () => {
+    if (
+      document.visibilityState === "visible" &&
+      navigator.onLine &&
+      wallet.status.value !== "pending"
+    ) {
+      const previous = wallet.data.value;
+      await wallet.refresh();
+      if (wallet.error.value && previous) wallet.data.value = previous;
+    }
+  };
+  onMounted(() => {
+    timer = setInterval(refreshVisible, 15000);
+    document.addEventListener("visibilitychange", refreshVisible);
+    window.addEventListener("online", refreshVisible);
+    window.addEventListener("focus", refreshVisible);
+  });
+  onBeforeUnmount(() => {
+    if (timer) clearInterval(timer);
+    document.removeEventListener("visibilitychange", refreshVisible);
+    window.removeEventListener("online", refreshVisible);
+    window.removeEventListener("focus", refreshVisible);
+  });
+  return wallet;
+};
+
+const PortfolioDecimal = Decimal.clone({ precision: 60 });
+export function sortWalletAccounts(accounts: Account[]) {
+  const value = (a: Account) =>
+    new PortfolioDecimal(a.balance).mul(a.asset.prices?.[0]?.value ?? "0");
+  return [...accounts].sort((a, b) => {
+    // Nonzero holdings stay above empty accounts even if a quote is unavailable.
+    const held =
+      Number(new PortfolioDecimal(b.balance).gt(0)) -
+      Number(new PortfolioDecimal(a.balance).gt(0));
+    return (
+      held ||
+      value(b).cmp(value(a)) ||
+      a.asset.displayOrder - b.asset.displayOrder ||
+      a.asset.symbol.localeCompare(b.asset.symbol)
+    );
+  });
+}
 export const money = (value: string | number | null | undefined) =>
   value === null || value === undefined
     ? "—"

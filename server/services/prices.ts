@@ -10,8 +10,15 @@ export async function refreshPrices() {
     const assets = await db.asset.findMany({
       where: { enabled: true, priceTrackingEnabled: true },
     });
-    const saved = await db.price.findFirst({ orderBy: { fetchedAt: "desc" } });
-    if (saved && Date.now() - saved.fetchedAt.getTime() < 60000) return;
+    if (!assets.length) return;
+    const fresh = await db.price.count({
+      where: {
+        assetId: { in: assets.map((a) => a.id) },
+        currency: "USD",
+        fetchedAt: { gte: new Date(Date.now() - 60000) },
+      },
+    });
+    if (fresh === assets.length) return;
     try {
       const prices = await new CoinGeckoProvider().fetch(
         assets.map((a) => a.symbol),

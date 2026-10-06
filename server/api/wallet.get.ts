@@ -10,7 +10,10 @@ export default defineEventHandler(async (event) => {
       where: { userId: user.id },
       include: {
         asset: {
-          include: { prices: true, networks: { include: { network: true } } },
+          include: {
+            prices: { where: { currency: "USD" } },
+            networks: { include: { network: true } },
+          },
         },
       },
       orderBy: { asset: { displayOrder: "asc" } },

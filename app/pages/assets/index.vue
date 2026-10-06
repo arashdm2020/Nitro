@@ -1,15 +1,18 @@
 <script setup lang="ts">
+import { sortWalletAccounts } from "~/composables/useNitro";
 const labels = useLabels();
 
 const { data: wallet } = await useWallet(),
   search = ref("");
 const accounts = computed(() =>
-  wallet.value?.accounts.filter(
-    (a) =>
-      a.asset.enabled &&
-      `${a.asset.name} ${a.asset.symbol}`
-        .toLowerCase()
-        .includes(search.value.toLowerCase()),
+  sortWalletAccounts(
+    wallet.value?.accounts.filter(
+      (a) =>
+        a.asset.enabled &&
+        `${a.asset.name} ${a.asset.symbol}`
+          .toLowerCase()
+          .includes(search.value.toLowerCase()),
+    ) ?? [],
   ),
 );
 </script>
